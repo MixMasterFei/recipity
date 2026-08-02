@@ -1,0 +1,260 @@
+@import "tailwindcss";
+
+/**
+ * Recipity design tokens.
+ *
+ * Warm kitchen palette: espresso and cream rather than grey and white, with
+ * saffron as the accent. The three match states get their own semantic colours
+ * (sage / amber / clay) because they appear everywhere and need to be readable
+ * at a glance across a grid of cards.
+ */
+
+@theme {
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --color-cream-50: #fdfbf7;
+  --color-cream-100: #f8f3ea;
+  --color-cream-200: #f0e7d8;
+  --color-cream-300: #e3d5be;
+
+  --color-espresso-700: #4a3f35;
+  --color-espresso-800: #33291f;
+  --color-espresso-900: #241c15;
+  --color-espresso-950: #17110c;
+
+  --color-saffron-400: #f0b429;
+  --color-saffron-500: #de9b0c;
+  --color-saffron-600: #b87708;
+
+  --color-sage-400: #7fa671;
+  --color-sage-500: #5f8a52;
+  --color-sage-600: #4a6e40;
+
+  --color-amber-glow-400: #e8a33d;
+  --color-amber-glow-500: #cf8420;
+
+  --color-clay-400: #c47a5c;
+  --color-clay-500: #a55f43;
+}
+
+:root {
+  --bg: var(--color-cream-50);
+  --bg-raised: #ffffff;
+  --bg-sunken: var(--color-cream-100);
+  --border: var(--color-cream-300);
+  --border-strong: #d4c3a5;
+  --text: var(--color-espresso-900);
+  --text-muted: #7a6a58;
+  --text-faint: #9c8b76;
+  --accent: var(--color-saffron-600);
+  --accent-soft: #fbeecc;
+
+  --ready: var(--color-sage-600);
+  --ready-bg: #eaf2e6;
+  --almost: var(--color-amber-glow-500);
+  --almost-bg: #fdf0d9;
+  --stretch: var(--color-clay-500);
+  --stretch-bg: #f7e8e1;
+
+  --shadow-card: 0 1px 2px rgb(36 28 21 / 0.04), 0 4px 16px rgb(36 28 21 / 0.05);
+  --shadow-lift: 0 2px 4px rgb(36 28 21 / 0.06), 0 12px 32px rgb(36 28 21 / 0.09);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: var(--color-espresso-950);
+    --bg-raised: #1f1811;
+    --bg-sunken: #120d09;
+    --border: #362b21;
+    --border-strong: #4a3b2c;
+    --text: var(--color-cream-100);
+    --text-muted: #a8977f;
+    --text-faint: #7d6e5c;
+    --accent: var(--color-saffron-400);
+    --accent-soft: #392c11;
+
+    --ready: var(--color-sage-400);
+    --ready-bg: #1d2a19;
+    --almost: var(--color-amber-glow-400);
+    --almost-bg: #33260f;
+    --stretch: var(--color-clay-400);
+    --stretch-bg: #33201a;
+
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px rgb(0 0 0 / 0.25);
+    --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.35), 0 12px 32px rgb(0 0 0 / 0.4);
+  }
+}
+
+/* The header toggle stamps data-theme on <html>; it must beat the media query. */
+:root[data-theme="light"] {
+  --bg: var(--color-cream-50);
+  --bg-raised: #ffffff;
+  --bg-sunken: var(--color-cream-100);
+  --border: var(--color-cream-300);
+  --border-strong: #d4c3a5;
+  --text: var(--color-espresso-900);
+  --text-muted: #7a6a58;
+  --text-faint: #9c8b76;
+  --accent: var(--color-saffron-600);
+  --accent-soft: #fbeecc;
+  --ready: var(--color-sage-600);
+  --ready-bg: #eaf2e6;
+  --almost: var(--color-amber-glow-500);
+  --almost-bg: #fdf0d9;
+  --stretch: var(--color-clay-500);
+  --stretch-bg: #f7e8e1;
+  --shadow-card: 0 1px 2px rgb(36 28 21 / 0.04), 0 4px 16px rgb(36 28 21 / 0.05);
+  --shadow-lift: 0 2px 4px rgb(36 28 21 / 0.06), 0 12px 32px rgb(36 28 21 / 0.09);
+}
+
+:root[data-theme="dark"] {
+  --bg: var(--color-espresso-950);
+  --bg-raised: #1f1811;
+  --bg-sunken: #120d09;
+  --border: #362b21;
+  --border-strong: #4a3b2c;
+  --text: var(--color-cream-100);
+  --text-muted: #a8977f;
+  --text-faint: #7d6e5c;
+  --accent: var(--color-saffron-400);
+  --accent-soft: #392c11;
+  --ready: var(--color-sage-400);
+  --ready-bg: #1d2a19;
+  --almost: var(--color-amber-glow-400);
+  --almost-bg: #33260f;
+  --stretch: var(--color-clay-400);
+  --stretch-bg: #33201a;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px rgb(0 0 0 / 0.25);
+  --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.35), 0 12px 32px rgb(0 0 0 / 0.4);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--text);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Keyboard users get a visible ring; mouse users don't need one. */
+  button,
+  a,
+  input,
+  select {
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+  }
+
+  .surface {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-card);
+  }
+
+  .surface-flat {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+  }
+
+  /* Wide content (tables, long ingredient rows) scrolls itself rather than
+     pushing the page sideways. */
+  .scroll-x {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@keyframes recipity-pop {
+  0% {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes recipity-rise {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes recipity-shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+.animate-pop {
+  animation: recipity-pop 220ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+.animate-rise {
+  animation: recipity-rise 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-sunken) 25%,
+    var(--border) 50%,
+    var(--bg-sunken) 75%
+  );
+  background-size: 200% 100%;
+  animation: recipity-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
