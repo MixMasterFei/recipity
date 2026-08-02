@@ -9,8 +9,12 @@ import {
   useState,
 } from "react";
 import { DEFAULT_STAPLES } from "@/data/ingredients";
+import { useAuth } from "@/lib/auth";
 import { EMPTY_DIET } from "@/lib/diet";
+import { isEmptyState, mergeState } from "@/lib/merge";
 import { addMissingToList, removeRecipeFromList } from "@/lib/shopping";
+import { getSupabase } from "@/lib/supabase";
+import { pullRemote, pushRemote } from "@/lib/sync";
 import type {
   DietPrefs,
   IngredientId,
@@ -24,7 +28,13 @@ import type {
 } from "@/lib/types";
 
 /**
- * All persistent user state, in localStorage.
+ * All persistent user state.
+ *
+ * localStorage is the source of truth and always works. When someone is signed
+ * in, a second leg mirrors the same state to Supabase — pulled and merged on
+ * sign-in, pushed on a slower debounce thereafter. Signed out, or with accounts
+ * unconfigured, none of that code runs and this behaves exactly as it did
+ * before accounts existed.
  *
  * The one genuinely tricky part is hydration. Reading localStorage during
  * render makes the server and client produce different HTML, and React tears
@@ -33,12 +43,20 @@ import type {
  * flag from here rather than reimplementing the dance.
  */
 
+// Deliberately still `recipity.*` after the rebrand — renaming would orphan
+// the data of anyone already using the app.
 const STORAGE_KEY = "recipity.state.v1";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+
+/** localStorage write debounce. */
+const LOCAL_SAVE_MS = 250;
+/** Remote write debounce — slower, because it's a network round trip. */
+const REMOTE_SAVE_MS = 1200;
 
 function initialState(): RecipityState {
   return {
     schemaVersion: SCHEMA_VERSION,
+    updatedAt: new Date().toISOString(),
     pantry: [],
     staples: [...DEFAULT_STAPLES],
     favorites: [],
@@ -62,6 +80,13 @@ function migrate(raw: unknown): RecipityState {
   const data = raw as Partial<RecipityState>;
   return {
     schemaVersion: SCHEMA_VERSION,
+    // v1 blobs predate sync and have no timestamp. Treating them as ancient
+    // rather than "now" is the safe default: on a first sign-in the server's
+    // preferences win, instead of a stale device clobbering them.
+    updatedAt:
+      typeof data.updatedAt === "string"
+        ? data.updatedAt
+        : new Date(0).toISOString(),
     pantry: Array.isArray(data.pantry) ? data.pantry : base.pantry,
     staples: Array.isArray(data.staples) ? data.staples : base.staples,
     favorites: Array.isArray(data.favorites) ? data.favorites : base.favorites,
@@ -106,11 +131,17 @@ export interface StoreActions {
   removeInvented(recipeId: RecipeId): void;
 }
 
+export type SyncStatus = "off" | "merging" | "synced" | "saving" | "error";
+
 interface StoreValue {
   state: RecipityState;
   /** False until localStorage has been read; render skeletons while false. */
   hydrated: boolean;
   actions: StoreActions;
+  /** "off" whenever accounts are unconfigured or nobody is signed in. */
+  syncStatus: SyncStatus;
+  /** ISO time of the last successful push, for the account menu. */
+  lastSyncedAt: string | null;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -119,6 +150,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<RecipityState>(initialState);
   const [hydrated, setHydrated] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("off");
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const remoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Which user id we've already pulled+merged for. Guards against the merge
+  // re-running on every token refresh, which would be wasted round trips.
+  const mergedFor = useRef<string | null>(null);
 
   // Load once, after mount, so server and client agree on the first render.
   useEffect(() => {
@@ -143,14 +183,105 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // Quota exceeded or private mode. Nothing useful to do.
       }
-    }, 250);
+    }, LOCAL_SAVE_MS);
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
   }, [state, hydrated]);
 
+  /**
+   * Sign-in: pull the account's copy, merge this device into it, adopt the
+   * result. This is the "your fridge came with you" moment — see lib/merge.ts
+   * for why collections union but preferences don't.
+   */
+  useEffect(() => {
+    if (!hydrated) return;
+
+    if (!userId) {
+      // Signing out deliberately leaves local data alone. Wiping it would be a
+      // nasty surprise for anyone who signs straight back in.
+      mergedFor.current = null;
+      setSyncStatus("off");
+      return;
+    }
+
+    if (mergedFor.current === userId) return;
+    mergedFor.current = userId;
+
+    const client = getSupabase();
+    if (!client) return;
+
+    let cancelled = false;
+    setSyncStatus("merging");
+
+    (async () => {
+      const { state: remote, error } = await pullRemote(client, userId);
+      if (cancelled) return;
+
+      if (error) {
+        setSyncStatus("error");
+        return;
+      }
+
+      // Merge against the freshest local state rather than the value captured
+      // when this effect started, in case the user kept typing during the pull.
+      setState((local) => {
+        const merged = remote ? mergeState(local, migrate(remote)) : local;
+        void pushRemote(client, userId, merged).then((res) => {
+          if (cancelled) return;
+          if (res.error) {
+            setSyncStatus("error");
+          } else {
+            setSyncStatus("synced");
+            setLastSyncedAt(new Date().toISOString());
+          }
+        });
+        return merged;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, hydrated]);
+
+  /** Ongoing pushes while signed in, on a slower debounce than localStorage. */
+  useEffect(() => {
+    if (!hydrated || !userId) return;
+    // Don't race the initial merge, and don't bother writing an empty fridge.
+    if (syncStatus === "merging") return;
+    if (isEmptyState(state)) return;
+
+    const client = getSupabase();
+    if (!client) return;
+
+    if (remoteTimer.current) clearTimeout(remoteTimer.current);
+    remoteTimer.current = setTimeout(() => {
+      setSyncStatus("saving");
+      void pushRemote(client, userId, state).then((res) => {
+        if (res.error) {
+          setSyncStatus("error");
+        } else {
+          setSyncStatus("synced");
+          setLastSyncedAt(new Date().toISOString());
+        }
+      });
+    }, REMOTE_SAVE_MS);
+
+    return () => {
+      if (remoteTimer.current) clearTimeout(remoteTimer.current);
+    };
+    // `syncStatus` is deliberately absent from the deps: including it would
+    // retrigger this effect from inside its own setState calls and loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, userId, hydrated]);
+
   const actions = useMemo<StoreActions>(() => {
-    const update = (fn: (s: RecipityState) => RecipityState) => setState(fn);
+    // Every mutation goes through here, so stamping the clock once covers all
+    // of them. `updatedAt` is what decides which side's staples and diet win
+    // during a merge, so a missed stamp would silently lose a preference edit.
+    const update = (fn: (s: RecipityState) => RecipityState) =>
+      setState((s) => ({ ...fn(s), updatedAt: new Date().toISOString() }));
 
     return {
       addPantryItem(ingredientId, opts) {
@@ -320,8 +451,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ state, hydrated, actions }),
-    [state, hydrated, actions],
+    () => ({ state, hydrated, actions, syncStatus, lastSyncedAt }),
+    [state, hydrated, actions, syncStatus, lastSyncedAt],
   );
 
   return (

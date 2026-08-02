@@ -168,6 +168,14 @@ export interface DietPrefs {
 
 export interface RecipityState {
   schemaVersion: number;
+  /**
+   * ISO timestamp of the last local change.
+   *
+   * Only used by sync: `staples` and `diet` are curated by *removal*, so a
+   * union would resurrect things the user deliberately unticked. Those fields
+   * take the newer side wholesale instead, and this is how we tell which.
+   */
+  updatedAt: string;
   pantry: PantryItem[];
   /** Ingredients assumed always on hand; excluded from match maths. */
   staples: IngredientId[];

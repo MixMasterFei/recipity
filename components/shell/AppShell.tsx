@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useStore } from "@/lib/store";
+import { AccountMenu } from "@/components/shell/AccountMenu";
 import { cx } from "@/components/ui/primitives";
 
 /**
@@ -43,12 +44,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   // A recipe page highlights "browse" rather than adding a fifth nav item.
-  const activeHref = pathname.startsWith("/recipes")
+  // Routes outside the nav — /account, /auth/callback — highlight nothing,
+  // rather than falsely underlining "kitchen".
+  const activeHref: string | null = pathname.startsWith("/recipes")
     ? "/recipes"
     : pathname === "/"
       ? "/"
       : (NAV.find((n) => n.href !== "/" && pathname.startsWith(n.href))?.href ??
-        "/");
+        null);
 
   return (
     <div
@@ -116,6 +119,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          <AccountMenu />
           <ThemeToggle />
         </nav>
       </header>

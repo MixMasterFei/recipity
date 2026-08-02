@@ -142,6 +142,26 @@ export function expiryLabel(days: number): string {
 /* Section and tier copy                                               */
 /* ------------------------------------------------------------------ */
 
+/** Sync status, in words. Shared by the account page and the header menu. */
+export function syncCopy(
+  status: "off" | "merging" | "synced" | "saving" | "error",
+  lastSyncedAt: string | null,
+): string {
+  if (status === "merging") return "merging your fridge…";
+  if (status === "saving") return "saving…";
+  if (status === "error") return "couldn't reach the server";
+  if (status === "off") return "not syncing";
+  if (!lastSyncedAt) return "synced";
+
+  const seconds = Math.max(
+    0,
+    Math.round((Date.now() - Date.parse(lastSyncedAt)) / 1000),
+  );
+  if (seconds < 45) return "synced · just now";
+  if (seconds < 3600) return `synced · ${Math.round(seconds / 60)}m ago`;
+  return `synced · ${Math.round(seconds / 3600)}h ago`;
+}
+
 export const TIER_COPY = {
   ready: { title: "ready rn", subtitle: "zero shopping required" },
   almost: {

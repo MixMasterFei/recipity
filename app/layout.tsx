@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque } from "next/font/google";
+import { AuthProvider } from "@/lib/auth";
 import { StoreProvider } from "@/lib/store";
 import { AppShell } from "@/components/shell/AppShell";
 import "./globals.css";
@@ -57,9 +58,13 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body>
-        <StoreProvider>
-          <AppShell>{children}</AppShell>
-        </StoreProvider>
+        {/* AuthProvider wraps the store: the store reads the session to decide
+            whether to sync, so it has to be inside. */}
+        <AuthProvider>
+          <StoreProvider>
+            <AppShell>{children}</AppShell>
+          </StoreProvider>
+        </AuthProvider>
       </body>
     </html>
   );

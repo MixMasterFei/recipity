@@ -7,8 +7,9 @@ your actual ingredients, so the ones you can make *right now* rise to the top,
 the ones you're two ingredients short of get their own band, and anything using
 food that's about to go off gets pushed up the list.
 
-No account, no database, no server-side anything. Your pantry lives in your
-browser's localStorage and never leaves it.
+**No account required.** Your fridge lives in this browser's localStorage and
+works entirely offline. Sign in only if you want it to follow you to another
+device — see [Accounts](#accounts-optional).
 
 ## What it does
 
@@ -27,6 +28,8 @@ browser's localStorage and never leaves it.
   it used from your pantry.
 - **Make something up** — optional: has Claude write an original recipe from
   exactly what you have. See [enabling it](#enabling-recipe-invention).
+- **Accounts** — optional: sign in with Google or a magic link and your fridge
+  syncs across devices. See [Accounts](#accounts-optional).
 
 ## Running it
 
@@ -82,9 +85,11 @@ disagree fails the build.
 ```
 app/            routes — kitchen, browse, detail, list, saved, /api/invent
 components/     pantry/ recipe/ filters/ invent/ shell/ ui/
-lib/            types, match, normalize, diet, shopping, store
+lib/            types, match, normalize, diet, shopping, store, voice
+                merge, sync, auth, supabase   (accounts)
 data/           ingredients, substitutions, recipes/
-tests/          engine + data-integrity tests
+supabase/       migrations/                   (schema + row-level security)
+tests/          engine, data-integrity and merge tests
 ```
 
 ## Enabling recipe invention
@@ -125,6 +130,58 @@ Four things depart from that design, on purpose:
 3. **The AI invent panel exists**, restyled into Sorbet's language.
 4. **The staples editor exists** — the engine excludes staples from both sides of
    the coverage fraction, so that set has to stay adjustable.
+
+## Accounts (optional)
+
+Off by default. With no Supabase credentials set there is no sign-in UI
+anywhere, no network calls, and the app behaves exactly as it did before
+accounts existed — same dormancy pattern as recipe invention.
+
+Signing in is **additive, never destructive**. On first sign-in your local
+fridge is *merged* with whatever is on the account rather than one replacing the
+other, and signing out leaves this device's data exactly where it is.
+
+### Turning it on
+
+1. Create a Supabase project (the free tier is plenty).
+2. Run `supabase/migrations/0001_kitchen_state.sql` against it — SQL Editor,
+   or `supabase db push` if you use the CLI.
+3. **Google:** Google Cloud Console → Credentials → OAuth client ID (Web).
+   Set the authorized redirect URI to
+   `https://<project-ref>.supabase.co/auth/v1/callback`, then paste the client
+   ID and secret into Supabase → Authentication → Providers → Google.
+4. In Supabase → Authentication → URL Configuration, set your site URL and add
+   `https://<your-domain>/auth/callback` to the redirect allowlist.
+5. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   (see `.env.example`) and redeploy.
+
+Magic-link sign-in needs no extra setup — it uses Supabase's built-in email.
+
+### On the anon key being public
+
+It is `NEXT_PUBLIC_` on purpose and ships in the browser bundle, which is what
+that key is designed for. **Row-level security is the actual security
+boundary** — the policies in the migration are what stop one signed-in user
+reading another's fridge. Don't disable them.
+
+### How the merge works
+
+`lib/merge.ts`, with its own tests, because getting this wrong either loses
+someone's work or resurrects things they deleted. Two rules, because the state
+holds two kinds of field:
+
+- **Collections** (pantry, favourites, shopping list, history, invented) union
+  by key. Losing an entry loses real work.
+- **Preferences** (staples, diet) take the newer side wholesale. These are
+  curated by *removal* — untick salt and a union would put it straight back,
+  forever.
+
+The merge is idempotent, which matters because sync pushes the merged result
+straight back; without it, every round trip would duplicate history.
+
+Trade-off worth knowing: a device offline for a long time loses its staple and
+diet edits to the newer side. That's the price of not resurrecting deleted
+staples.
 
 ## Notes
 
