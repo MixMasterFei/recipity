@@ -8,6 +8,7 @@ import { groupByStatus, matchPantry } from "@/lib/match";
 import { highestLeverageBuy } from "@/lib/shopping";
 import { useStore, useToday } from "@/lib/store";
 import { TIER_COPY, heroSub, leverageUnlocks, tickerText } from "@/lib/voice";
+import { turningHeadline, turningItems } from "@/lib/rescue";
 import { Main, Ticker } from "@/components/shell/AppShell";
 import {
   DemoPantryButton,
@@ -19,6 +20,7 @@ import { TierSection } from "@/components/recipe/RecipeCard";
 import { DietFilterBar } from "@/components/filters/DietFilterBar";
 import { InventPanel } from "@/components/invent/InventPanel";
 import { SpinThePan } from "@/components/kitchen/SpinThePan";
+import { RescueBoard } from "@/components/kitchen/RescueBoard";
 import {
   Button,
   CardSkeleton,
@@ -57,6 +59,12 @@ export default function KitchenPage() {
   );
 
   const leverage = useMemo(() => highestLeverageBuy(results), [results]);
+  // Drives both the hero and the rescue board. Empty for most fridges, which
+  // is why the Kitchen looks unchanged when nothing is at risk.
+  const turning = useMemo(
+    () => turningItems(state.pantry, today),
+    [state.pantry, today],
+  );
   const hasPantry = state.pantry.length > 0;
   const ticker = tickerText(hydrated, state.pantry, ready.length, today);
 
@@ -69,6 +77,12 @@ export default function KitchenPage() {
           style={{ gap: 28 }}
         >
           <div style={{ minWidth: "min(100%, 420px)", flex: 1 }}>
+            {/*
+              The headline answers whichever question actually matters. Nothing
+              at risk and it's the usual "what shall I cook"; something turning
+              and that becomes the more urgent question, which is also the one
+              a curated library answers best.
+            */}
             <h1
               style={{
                 margin: 0,
@@ -79,13 +93,24 @@ export default function KitchenPage() {
                 color: "var(--ink)",
               }}
             >
-              feed me,
-              <br />
-              i&apos;m{" "}
-              <em style={{ fontStyle: "normal", color: "var(--sky-deep)" }}>
-                bored
-              </em>
-              .
+              {hydrated && turning.length > 0 ? (
+                <>
+                  <em style={{ fontStyle: "normal", color: "var(--orange)" }}>
+                    {turningHeadline(turning)}
+                  </em>
+                  .
+                </>
+              ) : (
+                <>
+                  feed me,
+                  <br />
+                  i&apos;m{" "}
+                  <em style={{ fontStyle: "normal", color: "var(--sky-deep)" }}>
+                    bored
+                  </em>
+                  .
+                </>
+              )}
             </h1>
             <p
               style={{
@@ -97,7 +122,9 @@ export default function KitchenPage() {
                 maxWidth: "44ch",
               }}
             >
-              {heroSub(hydrated, state.pantry.length, ready.length)}
+              {hydrated && turning.length > 0
+                ? "cook something below and none of it goes in the bin."
+                : heroSub(hydrated, state.pantry.length, ready.length)}
             </p>
           </div>
 
@@ -121,6 +148,8 @@ export default function KitchenPage() {
           </EmptyPanel>
         ) : (
           <>
+            <RescueBoard results={results} turning={turning} />
+
             <PantryShelf />
 
             <div style={{ marginTop: 18 }}>

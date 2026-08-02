@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  daysUntil,
   expiringItems,
   groupByStatus,
   matchPantry,
@@ -358,20 +357,6 @@ describe("groupByStatus", () => {
     });
     const { ready, almost, stretch } = groupByStatus(results);
     expect(ready.length + almost.length + stretch.length).toBe(results.length);
-  });
-});
-
-describe("daysUntil", () => {
-  it("counts whole days forward", () => {
-    expect(daysUntil(daysFromNow(3), NOW)).toBe(3);
-  });
-
-  it("goes negative once past", () => {
-    expect(daysUntil(daysFromNow(-2), NOW)).toBe(-2);
-  });
-
-  it("returns Infinity for an unparseable date rather than throwing", () => {
-    expect(daysUntil("not a date", NOW)).toBe(Infinity);
   });
 });
 

@@ -19,6 +19,9 @@ device — see [Accounts](#accounts-optional).
   have.
 - **Live matching** — 139 recipes re-ranked on every change, split into
   *ready rn* / *so close* / *worth a shop*.
+- **Use it or lose it** — anything about to turn takes over the top of the
+  Kitchen, along with the dinners that actually rescue it. See
+  [Rescue first](#rescue-first).
 - **Spin the pan** — can't decide? It picks for you, slot-machine style.
 - **Portions sized to you** — tell it you've got 50g of pasta left and a recipe
   for four says "makes 1, not 2". See [Amounts](#amounts-and-why-most-apps-get-this-wrong).
@@ -75,6 +78,43 @@ The rank score then applies:
 Optional ingredients never block a match, so a vegan pasta doesn't fall out of
 "ready" because parmesan is listed as an optional finish.
 
+## Rescue first
+
+When something in your fridge is within three days of its use-by date, the
+Kitchen changes what it asks. The headline stops being *feed me, i'm bored* and
+becomes *2 things are about to turn*, and a **use it or lose it** board takes
+the top of the page with the dinners that actually use them.
+
+That isn't only a nicer framing, it's a smaller problem. *"What can I cook from
+my twenty ingredients?"* needs an enormous recipe corpus to answer well, and
+with 139 hand-written recipes it fails often. *"What uses up this spinach before
+Thursday?"* needs only a handful of spinach recipes to succeed. Narrowing the
+question narrows how much library it takes to answer it.
+
+Two rules keep the board honest:
+
+- Nothing on it is a shopping list. Only recipes you can make now or nearly
+  qualify — being told to rescue your spinach with a dish needing five things
+  you haven't got isn't rescue.
+- When the library genuinely can't save something, it says so, by name, instead
+  of padding the board. That's also the clearest signal available of where the
+  recipe corpus is thin.
+
+Nothing is turning in most fridges, and then this renders nothing at all and the
+Kitchen looks exactly as it did.
+
+### A use-by date is a day, not an instant
+
+`lib/expiry.ts` exists because the obvious implementation of "days until" is
+wrong twice. Diffing two timestamps and flooring means something stamped *use by
+today* reads as **expired** a millisecond later; and a `YYYY-MM-DD` from a date
+input parses as *UTC* midnight, so picking today reads as yesterday for everyone
+west of Greenwich. So both sides are floored to local midnight before
+subtracting, dates chosen in the picker are stored at local noon (the same
+calendar day in every timezone, daylight saving included), and the day
+difference is rounded so the 23- and 25-hour days either side of a clock change
+still count as one.
+
 ### Diet tags are derived, not written
 
 `lib/diet.ts` computes a recipe's diet flags from its ingredients' flags rather
@@ -87,8 +127,9 @@ disagree fails the build.
 
 ```
 app/            routes — kitchen, browse, detail, list, saved, /api/invent
-components/     pantry/ recipe/ filters/ invent/ shell/ ui/
+components/     kitchen/ pantry/ recipe/ filters/ invent/ shell/ ui/
 lib/            types, match, normalize, diet, shopping, store, voice
+                expiry, quantity, rescue      (use-by dates and amounts)
                 merge, sync, auth, supabase   (accounts)
 data/           ingredients, substitutions, recipes/
 supabase/       migrations/                   (schema + row-level security)

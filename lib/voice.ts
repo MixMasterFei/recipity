@@ -84,10 +84,18 @@ export function portionNote(result: MatchResult): string | null {
   return `makes ${possible}, not ${full}`;
 }
 
-/** `⏰ uses the spinach` — the emoji is rendered separately by the card. */
+/**
+ * `⏰ uses the spinach` — the emoji is rendered separately by the card.
+ *
+ * Names both when a recipe saves two things, because that's the whole reason
+ * it's top of the rescue board and saying only "uses the eggs" sells it short.
+ */
 export function rescueLabel(result: MatchResult): string {
-  const first = result.rescues[0];
-  return first ? `uses the ${lower(first)}` : "";
+  const [first, second] = result.rescues.map(lower);
+  if (!first) return "";
+  if (!second) return `uses the ${first}`;
+  if (result.rescues.length === 2) return `uses the ${first} + ${second}`;
+  return `uses the ${first} + ${result.rescues.length - 1} more`;
 }
 
 /* ------------------------------------------------------------------ */

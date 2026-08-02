@@ -10,6 +10,7 @@ import type {
   RecipeIngredient,
 } from "@/lib/types";
 import { recipeSatisfiesDiet } from "@/lib/diet";
+import { daysUntil } from "@/lib/expiry";
 import { coverageRatio, isEnough, toAmount } from "@/lib/quantity";
 import type { DietPrefs } from "@/lib/types";
 
@@ -69,13 +70,6 @@ const SUBS_BY_TARGET = (() => {
   }
   return map;
 })();
-
-/** Whole days from `now` until `iso`; negative when already past. */
-export function daysUntil(iso: string, now: Date): number {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return Infinity;
-  return Math.floor((then - now.getTime()) / 86_400_000);
-}
 
 /**
  * Resolve a recipe ingredient ref against the pantry.

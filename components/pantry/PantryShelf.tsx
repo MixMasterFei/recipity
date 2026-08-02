@@ -2,7 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { AISLE_LABEL, AISLE_ORDER, getIngredient } from "@/data/ingredients";
-import { daysUntil } from "@/lib/match";
+import {
+  daysUntil,
+  useByInDays,
+  useByInputValue,
+  useByIso,
+} from "@/lib/expiry";
 import { useStore, useToday } from "@/lib/store";
 import { expiryLabel } from "@/lib/voice";
 import { UNIT_CHOICES, formatAmount } from "@/lib/quantity";
@@ -320,11 +325,7 @@ function ItemPopover({
         {presets.map((p) => (
           <button
             key={p.label}
-            onClick={() => {
-              const date = new Date();
-              date.setDate(date.getDate() + p.days);
-              setExpiry(date.toISOString());
-            }}
+            onClick={() => setExpiry(useByInDays(p.days))}
             className="msc-hover-peach"
             style={{
               borderRadius: 8,
@@ -341,11 +342,9 @@ function ItemPopover({
       </div>
       <input
         type="date"
-        defaultValue={item.expiresAt?.slice(0, 10)}
+        defaultValue={item.expiresAt ? useByInputValue(item.expiresAt) : undefined}
         aria-label="Use-by date"
-        onChange={(e) =>
-          setExpiry(e.target.value ? new Date(e.target.value).toISOString() : undefined)
-        }
+        onChange={(e) => setExpiry(useByIso(e.target.value))}
         style={{
           marginTop: 8,
           width: "100%",
