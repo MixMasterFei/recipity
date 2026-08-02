@@ -1,29 +1,28 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  AISLE_LABEL,
-  AISLE_ORDER,
-  getIngredient,
-} from "@/data/ingredients";
+import { AISLE_LABEL, AISLE_ORDER, getIngredient } from "@/data/ingredients";
 import { daysUntil } from "@/lib/match";
 import { useStore, useToday } from "@/lib/store";
-import { Badge, Button, cx } from "@/components/ui/primitives";
+import { expiryLabel } from "@/lib/voice";
+import { Eyebrow, cx } from "@/components/ui/primitives";
 import type { Aisle, IngredientId, PantryItem } from "@/lib/types";
 
 /**
- * The pantry, grouped by aisle.
+ * The fridge.
  *
- * Each item can carry a use-by date. That's the input to the "rescue" bonus in
- * the matching engine, so it's worth making it a single tap to set.
+ * Sorbet renders one flat alphabetical row; we keep aisle grouping because it
+ * makes a large pantry scannable, using the design's eyebrow label for the
+ * headers so it still reads as the same system.
+ *
+ * Chips carry their own expiry state: peach and pulsing within 3 days, pale
+ * yellow within 7. That urgency is the input to the engine's rescue bonus, so
+ * setting a date is one tap.
  */
 export function PantryShelf() {
   const { state, actions } = useStore();
   const today = useToday();
   const [editing, setEditing] = useState<IngredientId | null>(null);
-  // A big pantry pushes the actual results — the point of the page — below the
-  // fold, so once it gets long it starts folded away behind a summary line.
-  const [collapsed, setCollapsed] = useState(state.pantry.length > 14);
 
   const grouped = useMemo(() => {
     const buckets = new Map<Aisle, PantryItem[]>();
@@ -46,84 +45,46 @@ export function PantryShelf() {
   if (state.pantry.length === 0) return null;
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
+    <div style={{ marginTop: 26 }}>
+      <div className="flex flex-wrap items-center justify-between" style={{ gap: 12 }}>
+        <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--ink)" }}>
+          in the fridge{" "}
+          <span style={{ color: "var(--sky-deep)" }}>({state.pantry.length})</span>
+        </p>
         <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="flex items-center gap-2"
-          aria-expanded={!collapsed}
-        >
-          <h2 className="font-display text-lg" style={{ color: "var(--text)" }}>
-            Your kitchen{" "}
-            <span
-              className="tabular-nums"
-              style={{ color: "var(--text-faint)" }}
-            >
-              ({state.pantry.length})
-            </span>
-          </h2>
-          <svg
-            width={16}
-            height={16}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="var(--text-faint)"
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            className={cx("transition-transform", collapsed && "-rotate-90")}
-            aria-hidden
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
-        </button>
-        <Button
-          size="sm"
-          variant="ghost"
           onClick={() => {
             if (confirm("Empty your whole kitchen?")) actions.clearPantry();
           }}
+          className="msc-hover-orange"
+          style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-45)" }}
         >
-          Clear all
-        </Button>
+          empty everything 🗑
+        </button>
       </div>
 
-      {collapsed && (
-        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-          {state.pantry
-            .slice(0, 8)
-            .map((p) => getIngredient(p.ingredientId)?.name)
-            .filter(Boolean)
-            .join(", ")}
-          {state.pantry.length > 8 && ` +${state.pantry.length - 8} more`}
-        </p>
-      )}
-
-      {!collapsed && grouped.map(({ aisle, items }) => (
-        <section key={aisle}>
-          <h3
-            className="mb-2 text-xs font-semibold uppercase tracking-wide"
-            style={{ color: "var(--text-faint)" }}
-          >
-            {AISLE_LABEL[aisle]}
-          </h3>
-          <ul className="flex flex-wrap gap-2">
-            {items.map((item) => (
-              <PantryChip
-                key={item.ingredientId}
-                item={item}
-                today={today}
-                editing={editing === item.ingredientId}
-                onEdit={() =>
-                  setEditing(
-                    editing === item.ingredientId ? null : item.ingredientId,
-                  )
-                }
-                onClose={() => setEditing(null)}
-              />
-            ))}
-          </ul>
-        </section>
-      ))}
+      <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 12 }}>
+        {grouped.map(({ aisle, items }) => (
+          <div key={aisle}>
+            <Eyebrow>{AISLE_LABEL[aisle].toUpperCase()}</Eyebrow>
+            <div className="flex flex-wrap" style={{ gap: 8, marginTop: 6 }}>
+              {items.map((item) => (
+                <PantryChip
+                  key={item.ingredientId}
+                  item={item}
+                  today={today}
+                  editing={editing === item.ingredientId}
+                  onEdit={() =>
+                    setEditing(
+                      editing === item.ingredientId ? null : item.ingredientId,
+                    )
+                  }
+                  onClose={() => setEditing(null)}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -146,48 +107,38 @@ function PantryChip({
   if (!ing) return null;
 
   const days = item.expiresAt ? daysUntil(item.expiresAt, today) : undefined;
-  const urgency = expiryUrgency(days);
+  const urgency = expiryStyle(days);
 
   return (
-    <li className="animate-pop relative">
+    <div className="msc-pop relative">
       <div
-        className="flex items-center gap-1.5 rounded-full py-1.5 pl-3 pr-1.5 text-sm"
+        className="flex items-center"
         style={{
-          background: urgency ? urgency.bg : "var(--bg-raised)",
-          border: `1px solid ${urgency ? urgency.color : "var(--border)"}`,
-          color: urgency ? urgency.color : "var(--text)",
+          gap: 6,
+          borderRadius: 999,
+          padding: "6px 8px 6px 13px",
+          fontSize: 13,
+          fontWeight: 600,
+          background: urgency.bg,
+          border: `1.5px solid ${urgency.border}`,
+          color: urgency.color,
+          animation: urgency.pulse ? "msc-pulse 2s ease-in-out infinite" : "none",
         }}
       >
         {ing.emoji && <span aria-hidden>{ing.emoji}</span>}
-        <button onClick={onEdit} className="font-medium">
-          {ing.name}
-        </button>
+        <button onClick={onEdit}>{ing.name.toLowerCase()}</button>
         {days !== undefined && (
-          <span className="text-xs tabular-nums opacity-80">
-            {days < 0
-              ? "expired"
-              : days === 0
-                ? "today"
-                : `${days}d`}
+          <span style={{ fontSize: 11, fontWeight: 800, opacity: 0.85 }}>
+            {expiryLabel(days)}
           </span>
         )}
         <button
           onClick={() => actions.removePantryItem(item.ingredientId)}
           aria-label={`Remove ${ing.name}`}
-          className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-black/10"
+          className="opacity-50 hover:opacity-100"
+          style={{ marginLeft: 2, fontWeight: 800, fontSize: 12 }}
         >
-          <svg
-            width={14}
-            height={14}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            aria-hidden
-          >
-            <path d="M18 6 6 18M6 6l12 12" />
-          </svg>
+          ✕
         </button>
       </div>
 
@@ -201,7 +152,7 @@ function PantryChip({
           }}
         />
       )}
-    </li>
+    </div>
   );
 }
 
@@ -215,25 +166,39 @@ function ExpiryPopover({
   onSet: (iso: string | undefined) => void;
 }) {
   const presets = [
-    { label: "Today", days: 0 },
+    { label: "today", days: 0 },
     { label: "2 days", days: 2 },
-    { label: "This week", days: 6 },
+    { label: "this week", days: 6 },
     { label: "2 weeks", days: 14 },
   ];
 
   return (
     <div
-      className="animate-rise absolute left-0 top-full z-30 mt-2 w-56 rounded-2xl p-3"
+      className="msc-rise absolute"
       style={{
-        background: "var(--bg-raised)",
-        border: "1px solid var(--border)",
-        boxShadow: "var(--shadow-lift)",
+        left: 0,
+        top: "100%",
+        zIndex: 30,
+        marginTop: 8,
+        width: 230,
+        borderRadius: 16,
+        padding: 14,
+        background: "var(--surface)",
+        border: "2px solid var(--tan-border)",
+        boxShadow: "6px 6px 0 var(--tan-shadow)",
       }}
     >
-      <p className="mb-2 text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-        Use by — recipes that rescue it rank higher
+      <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--ink-60)" }}>
+        use it by when? rescue dinners rank higher.
       </p>
-      <div className="grid grid-cols-2 gap-1.5">
+      <div
+        style={{
+          marginTop: 8,
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 6,
+        }}
+      >
         {presets.map((p) => (
           <button
             key={p.label}
@@ -242,147 +207,162 @@ function ExpiryPopover({
               date.setDate(date.getDate() + p.days);
               onSet(date.toISOString());
             }}
-            className="rounded-lg px-2 py-1.5 text-xs transition-colors hover:brightness-95"
+            className="msc-hover-peach"
             style={{
-              background: "var(--bg-sunken)",
-              color: "var(--text)",
+              borderRadius: 8,
+              padding: "6px 8px",
+              fontSize: 12,
+              fontWeight: 600,
+              background: "var(--ground)",
+              color: "var(--ink)",
             }}
           >
             {p.label}
           </button>
         ))}
       </div>
-      <div className="mt-2 flex gap-2">
-        <input
-          type="date"
-          defaultValue={item.expiresAt?.slice(0, 10)}
-          onChange={(e) =>
-            onSet(e.target.value ? new Date(e.target.value).toISOString() : undefined)
-          }
-          className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs"
-          style={{
-            background: "var(--bg-sunken)",
-            border: "1px solid var(--border)",
-            color: "var(--text)",
-          }}
-        />
-      </div>
+      <input
+        type="date"
+        defaultValue={item.expiresAt?.slice(0, 10)}
+        onChange={(e) =>
+          onSet(e.target.value ? new Date(e.target.value).toISOString() : undefined)
+        }
+        style={{
+          marginTop: 8,
+          width: "100%",
+          boxSizing: "border-box",
+          borderRadius: 8,
+          padding: "6px 8px",
+          fontSize: 12,
+          background: "var(--ground)",
+          border: "1.5px solid var(--tan-border)",
+          color: "var(--ink)",
+        }}
+      />
       {item.expiresAt && (
         <button
           onClick={() => onSet(undefined)}
-          className="mt-2 w-full rounded-lg py-1.5 text-xs"
-          style={{ color: "var(--text-faint)" }}
+          style={{
+            marginTop: 8,
+            width: "100%",
+            fontSize: 12,
+            fontWeight: 600,
+            color: "var(--ink-45)",
+          }}
         >
-          Remove date
+          remove date
         </button>
       )}
       <button
         onClick={onClose}
-        className="mt-1 w-full rounded-lg py-1.5 text-xs"
-        style={{ color: "var(--text-faint)" }}
+        style={{
+          marginTop: 6,
+          width: "100%",
+          fontSize: 12,
+          fontWeight: 600,
+          color: "var(--ink-45)",
+        }}
       >
-        Close
+        close
       </button>
     </div>
   );
 }
 
-function expiryUrgency(days: number | undefined) {
-  if (days === undefined) return null;
-  if (days <= 3) return { color: "var(--stretch)", bg: "var(--stretch-bg)" };
-  if (days <= 7) return { color: "var(--almost)", bg: "var(--almost-bg)" };
-  return null;
+function expiryStyle(days: number | undefined) {
+  if (days === undefined) {
+    return {
+      bg: "var(--surface)",
+      border: "var(--tan-border)",
+      color: "var(--ink)",
+      pulse: false,
+    };
+  }
+  if (days <= 3) {
+    return {
+      bg: "var(--peach)",
+      border: "var(--orange)",
+      color: "var(--brown)",
+      pulse: true,
+    };
+  }
+  if (days <= 7) {
+    return {
+      bg: "var(--yellow-pale)",
+      border: "var(--peach)",
+      color: "var(--ink)",
+      pulse: false,
+    };
+  }
+  return {
+    bg: "var(--surface)",
+    border: "var(--tan-border)",
+    color: "var(--ink)",
+    pulse: false,
+  };
 }
 
-/** Banner listing what's about to go off, with a nudge toward using it. */
-export function ExpiringBanner() {
-  const { state } = useStore();
-  const today = useToday();
+/**
+ * The assumed-on-hand set.
+ *
+ * Not in the Sorbet design, but the engine excludes staples from both sides of
+ * the coverage fraction, so it has to stay adjustable — otherwise the maths is
+ * driven by a set the user can't see or change.
+ */
+const STAPLE_CANDIDATES: IngredientId[] = [
+  "salt", "black-pepper", "olive-oil", "vegetable-oil", "water", "butter",
+  "flour", "sugar", "garlic", "onion", "egg", "milk", "rice", "spaghetti",
+  "lemon", "soy-sauce", "chili-flakes", "cumin", "paprika", "italian-herbs",
+  "white-vinegar", "mustard", "tomato-paste", "honey", "stock-cube",
+];
 
-  const expiring = useMemo(
-    () =>
-      state.pantry
-        .filter((p) => p.expiresAt)
-        .map((p) => ({ item: p, days: daysUntil(p.expiresAt!, today) }))
-        .filter((e) => e.days <= 3)
-        .sort((a, b) => a.days - b.days),
-    [state.pantry, today],
-  );
-
-  if (expiring.length === 0) return null;
-
-  return (
-    <div
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl px-4 py-3 text-sm"
-      style={{ background: "var(--stretch-bg)", color: "var(--stretch)" }}
-    >
-      <span aria-hidden>⏳</span>
-      <strong className="font-medium">Use these soon:</strong>
-      {expiring.slice(0, 5).map(({ item, days }) => (
-        <Badge key={item.ingredientId} color="var(--stretch)" bg="transparent">
-          {getIngredient(item.ingredientId)?.name}
-          <span className="opacity-70">
-            {days < 0 ? " · expired" : days === 0 ? " · today" : ` · ${days}d`}
-          </span>
-        </Badge>
-      ))}
-      {expiring.length > 5 && (
-        <span className="text-xs opacity-70">+{expiring.length - 5} more</span>
-      )}
-      <span className="w-full text-xs opacity-80">
-        Recipes using them are ranked higher below.
-      </span>
-    </div>
-  );
-}
-
-/** Editor for the assumed-on-hand set that's excluded from match maths. */
 export function StaplesEditor() {
   const { state, actions } = useStore();
   const [open, setOpen] = useState(false);
 
   return (
-    <div>
+    <div style={{ marginTop: 18 }}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-sm"
-        style={{ color: "var(--text-muted)" }}
+        className="flex items-center"
+        style={{ gap: 6, fontSize: 13, fontWeight: 600, color: "var(--ink-45)" }}
+        aria-expanded={open}
       >
-        <span>
-          Assuming you always have{" "}
-          <strong style={{ color: "var(--text)" }}>
-            {state.staples.length} staples
-          </strong>
+        assuming you always have{" "}
+        <strong style={{ color: "var(--ink)" }}>
+          {state.staples.length} staples
+        </strong>
+        <span className={cx("transition-transform", open && "rotate-180")} aria-hidden>
+          ⌄
         </span>
-        <svg
-          width={14}
-          height={14}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2.5}
-          strokeLinecap="round"
-          className={cx("transition-transform", open && "rotate-180")}
-          aria-hidden
-        >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
       </button>
 
       {open && (
         <div
-          className="animate-rise mt-3 rounded-2xl p-4"
+          className="msc-rise"
           style={{
-            background: "var(--bg-sunken)",
-            border: "1px solid var(--border)",
+            marginTop: 10,
+            borderRadius: 16,
+            padding: 16,
+            background: "var(--surface)",
+            border: "2px solid var(--tan-border)",
+            boxShadow: "4px 4px 0 var(--tan-shadow)",
           }}
         >
-          <p className="mb-3 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-            Staples are ignored when working out how much of a recipe you have —
-            otherwise every simple pasta would score 100% on salt and oil alone.
-            Untick anything you don&apos;t actually keep.
+          <p
+            style={{
+              margin: 0,
+              fontSize: 12,
+              fontWeight: 500,
+              lineHeight: 1.55,
+              color: "var(--ink-60)",
+            }}
+          >
+            staples are ignored when scoring a recipe — otherwise every simple
+            pasta would hit 100% on salt and oil alone. untick anything you
+            don&apos;t actually keep.
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap" style={{ gap: 8, marginTop: 12 }}>
             {STAPLE_CANDIDATES.map((id) => {
               const ing = getIngredient(id);
               if (!ing) return null;
@@ -392,58 +372,36 @@ export function StaplesEditor() {
                   key={id}
                   onClick={() => actions.toggleStaple(id)}
                   aria-pressed={on}
-                  className="rounded-full px-3 py-1.5 text-sm transition-all active:scale-95"
+                  className="msc-press"
                   style={{
-                    background: on ? "var(--accent-soft)" : "var(--bg-raised)",
-                    border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
-                    color: on ? "var(--accent)" : "var(--text-muted)",
+                    borderRadius: 999,
+                    padding: "6px 13px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: on ? "var(--sky)" : "var(--ground)",
+                    border: `1.5px solid ${on ? "var(--sky-deep)" : "var(--tan-border)"}`,
+                    color: "var(--ink)",
                   }}
                 >
-                  {ing.name}
+                  {ing.name.toLowerCase()}
                 </button>
               );
             })}
           </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="mt-3"
+          <button
             onClick={actions.resetStaples}
+            className="msc-hover-orange"
+            style={{
+              marginTop: 12,
+              fontSize: 13,
+              fontWeight: 600,
+              color: "var(--ink-45)",
+            }}
           >
-            Reset to defaults
-          </Button>
+            reset to defaults
+          </button>
         </div>
       )}
     </div>
   );
 }
-
-/** The realistic candidate set for "things I always have in". */
-const STAPLE_CANDIDATES: IngredientId[] = [
-  "salt",
-  "black-pepper",
-  "olive-oil",
-  "vegetable-oil",
-  "water",
-  "butter",
-  "flour",
-  "sugar",
-  "garlic",
-  "onion",
-  "egg",
-  "milk",
-  "rice",
-  "spaghetti",
-  "lemon",
-  "soy-sauce",
-  "chili-flakes",
-  "cumin",
-  "paprika",
-  "italian-herbs",
-  "vinegar",
-  "white-vinegar",
-  "mustard",
-  "tomato-paste",
-  "honey",
-  "stock-cube",
-];

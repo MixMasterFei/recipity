@@ -3,16 +3,29 @@
 import { useState } from "react";
 import { DIET_KEYS, DIET_LABELS } from "@/lib/diet";
 import { useStore } from "@/lib/store";
-import { cx } from "@/components/ui/primitives";
+import { Eyebrow } from "@/components/ui/primitives";
 import type { DietKey } from "@/lib/types";
 
+/** Sorbet chip: pill, 1.5px border, sky fill when on. */
+function chipStyle(on: boolean, padding: string): React.CSSProperties {
+  return {
+    borderRadius: 999,
+    padding,
+    fontSize: 13,
+    fontWeight: 600,
+    background: on ? "var(--sky)" : "var(--surface)",
+    border: `1.5px solid ${on ? "var(--sky-deep)" : "var(--tan-border)"}`,
+    color: "var(--ink)",
+  };
+}
+
 /**
- * Dietary restrictions.
+ * EATING RULES.
  *
  * These are a hard filter in the engine, not a ranking penalty — set once and
- * anything that breaks them stops appearing anywhere in the app.
+ * anything breaking them stops appearing anywhere.
  */
-export function DietFilterBar({ label }: { label?: string }) {
+export function DietFilterBar({ padding = "6px 13px" }: { padding?: string }) {
   const { state, actions } = useStore();
   const active = state.diet.restrictions;
 
@@ -24,15 +37,8 @@ export function DietFilterBar({ label }: { label?: string }) {
   };
 
   return (
-    <div className="scroll-x no-scrollbar -mx-1 flex items-center gap-2 px-1 py-1">
-      {label && (
-        <span
-          className="shrink-0 text-xs font-medium"
-          style={{ color: "var(--text-faint)" }}
-        >
-          {label}
-        </span>
-      )}
+    <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
+      <Eyebrow>EATING RULES</Eyebrow>
       {DIET_KEYS.map((key) => {
         const on = active.includes(key);
         return (
@@ -40,14 +46,10 @@ export function DietFilterBar({ label }: { label?: string }) {
             key={key}
             onClick={() => toggle(key)}
             aria-pressed={on}
-            className="shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-all active:scale-95"
-            style={{
-              background: on ? "var(--accent)" : "var(--bg-raised)",
-              border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
-              color: on ? "var(--bg)" : "var(--text-muted)",
-            }}
+            className="msc-press"
+            style={chipStyle(on, padding)}
           >
-            {DIET_LABELS[key]}
+            {DIET_LABELS[key].toLowerCase()}
           </button>
         );
       })}
@@ -55,9 +57,9 @@ export function DietFilterBar({ label }: { label?: string }) {
   );
 }
 
-/** Sort + tag controls for the browse page. */
 export type BrowseSort = "match" | "quickest" | "alphabetical";
 
+/** SORT / MOOD / EATING RULES stack on the browse screen. */
 export function BrowseControls({
   sort,
   onSort,
@@ -79,88 +81,79 @@ export function BrowseControls({
   const visibleTags = showAllTags ? tags : tags.slice(0, 12);
 
   const sorts: { key: BrowseSort; label: string }[] = [
-    { key: "match", label: "Best match" },
-    { key: "quickest", label: "Quickest" },
-    { key: "alphabetical", label: "A–Z" },
+    { key: "match", label: "best match" },
+    { key: "quickest", label: "quickest" },
+    // En dash, matching the design.
+    { key: "alphabetical", label: "a–z" },
   ];
 
   return (
-    <div className="space-y-4">
+    <>
       <div
-        className="flex items-center gap-2 rounded-2xl px-4 py-2.5"
+        className="flex items-center"
         style={{
-          background: "var(--bg-raised)",
-          border: "1px solid var(--border)",
+          marginTop: 22,
+          gap: 10,
+          borderRadius: 999,
+          padding: "11px 20px",
+          background: "var(--surface)",
+          border: "2px solid var(--tan-border)",
+          maxWidth: 520,
         }}
       >
-        <svg
-          width={17}
-          height={17}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="var(--text-faint)"
-          strokeWidth={2}
-          strokeLinecap="round"
-          className="shrink-0"
-          aria-hidden
-        >
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-3.5-3.5" />
-        </svg>
+        <span style={{ fontSize: 15 }} aria-hidden>
+          🔍
+        </span>
         <input
           value={query}
           onChange={(e) => onQuery(e.target.value)}
-          placeholder="Search recipes…"
+          placeholder="search the cookbook…"
           aria-label="Search recipes by name"
-          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--text-faint)]"
-          style={{ color: "var(--text)" }}
+          className="min-w-0 flex-1 border-none bg-transparent outline-none"
+          style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium" style={{ color: "var(--text-faint)" }}>
-          Sort
-        </span>
+      <div
+        className="flex flex-wrap items-center"
+        style={{ marginTop: 14, gap: 8 }}
+      >
+        <Eyebrow>SORT</Eyebrow>
         {sorts.map((s) => (
           <button
             key={s.key}
             onClick={() => onSort(s.key)}
             aria-pressed={sort === s.key}
-            className="rounded-full px-3 py-1 text-sm transition-all"
-            style={{
-              background: sort === s.key ? "var(--accent-soft)" : "transparent",
-              color: sort === s.key ? "var(--accent)" : "var(--text-muted)",
-              border: `1px solid ${sort === s.key ? "var(--accent)" : "var(--border)"}`,
-            }}
+            className="msc-press"
+            style={chipStyle(sort === s.key, "5px 13px")}
           >
             {s.label}
           </button>
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div
+        className="flex flex-wrap items-center"
+        style={{ marginTop: 10, gap: 8 }}
+      >
+        <Eyebrow>MOOD</Eyebrow>
         <button
           onClick={() => onTag(null)}
           aria-pressed={activeTag === null}
-          className={cx("rounded-full px-3 py-1 text-sm transition-all")}
-          style={{
-            background: activeTag === null ? "var(--accent-soft)" : "transparent",
-            color: activeTag === null ? "var(--accent)" : "var(--text-muted)",
-            border: `1px solid ${activeTag === null ? "var(--accent)" : "var(--border)"}`,
-          }}
+          className="msc-press"
+          style={{ ...chipStyle(activeTag === null, "5px 13px"), textTransform: "lowercase" }}
         >
-          All
+          all
         </button>
         {visibleTags.map((tag) => (
           <button
             key={tag}
             onClick={() => onTag(activeTag === tag ? null : tag)}
             aria-pressed={activeTag === tag}
-            className="rounded-full px-3 py-1 text-sm capitalize transition-all"
+            className="msc-press"
             style={{
-              background: activeTag === tag ? "var(--accent-soft)" : "transparent",
-              color: activeTag === tag ? "var(--accent)" : "var(--text-muted)",
-              border: `1px solid ${activeTag === tag ? "var(--accent)" : "var(--border)"}`,
+              ...chipStyle(activeTag === tag, "5px 13px"),
+              textTransform: "lowercase",
             }}
           >
             {tag.replace(/-/g, " ")}
@@ -169,13 +162,22 @@ export function BrowseControls({
         {tags.length > 12 && (
           <button
             onClick={() => setShowAllTags(!showAllTags)}
-            className="text-sm underline underline-offset-2"
-            style={{ color: "var(--text-faint)" }}
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: "underline",
+              textUnderlineOffset: 2,
+              color: "var(--ink-45)",
+            }}
           >
-            {showAllTags ? "Fewer" : `+${tags.length - 12} more`}
+            {showAllTags ? "fewer" : `+${tags.length - 12} more`}
           </button>
         )}
       </div>
-    </div>
+
+      <div style={{ marginTop: 10 }}>
+        <DietFilterBar padding="5px 13px" />
+      </div>
+    </>
   );
 }

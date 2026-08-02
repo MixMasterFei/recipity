@@ -4,21 +4,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { searchIngredients } from "@/lib/normalize";
 import { getIngredient } from "@/data/ingredients";
 import { useStore } from "@/lib/store";
-import { Button, cx } from "@/components/ui/primitives";
+import { Button, Eyebrow } from "@/components/ui/primitives";
 import type { IngredientId } from "@/lib/types";
 
 /**
- * Keyboard-first ingredient entry.
+ * The fridge input.
  *
- * Typing filters the catalogue; arrows move; Enter adds. The whole point is
- * that adding fifteen things should take fifteen seconds, so the input never
- * loses focus and never clears its own results underneath you.
+ * A rounded pill that turns sky-blue at the border on focus, with a dropdown
+ * that rises in. Keyboard-first: arrows wrap the highlight, Enter adds,
+ * Escape closes and clears. Focus is never taken away, so you can rattle off
+ * fifteen ingredients without touching the mouse.
  */
 export function PantryInput({ autoFocus }: { autoFocus?: boolean }) {
   const { state, actions } = useStore();
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
   const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -27,12 +29,11 @@ export function PantryInput({ autoFocus }: { autoFocus?: boolean }) {
     [state.pantry],
   );
 
-  const results = useMemo(() => {
-    if (query.trim().length === 0) return [];
-    return searchIngredients(query, 8);
-  }, [query]);
+  const results = useMemo(
+    () => (query.trim().length === 0 ? [] : searchIngredients(query, 8)),
+    [query],
+  );
 
-  // Keep the highlight in range when the result list shrinks under it.
   useEffect(() => {
     setHighlight((h) => Math.min(h, Math.max(0, results.length - 1)));
   }, [results.length]);
@@ -49,7 +50,6 @@ export function PantryInput({ autoFocus }: { autoFocus?: boolean }) {
     actions.addPantryItem(id);
     setQuery("");
     setHighlight(0);
-    // Deliberately keep focus so the next ingredient can be typed immediately.
     inputRef.current?.focus();
   };
 
@@ -71,16 +71,25 @@ export function PantryInput({ autoFocus }: { autoFocus?: boolean }) {
     }
   };
 
+  const showSuggestions = open && results.length > 0;
+  const showNoHits = open && query.trim().length > 1 && results.length === 0;
+
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative" style={{ marginTop: 26 }}>
       <div
-        className="flex items-center gap-2 rounded-2xl px-4 py-3 transition-shadow focus-within:shadow-[var(--shadow-lift)]"
+        className="flex items-center"
         style={{
-          background: "var(--bg-raised)",
-          border: "1px solid var(--border-strong)",
+          gap: 10,
+          borderRadius: 999,
+          padding: "13px 22px",
+          background: "var(--surface)",
+          border: `2px solid ${focused ? "var(--sky-deep)" : "var(--tan-border)"}`,
+          transition: "border-color 150ms",
         }}
       >
-        <SearchIcon />
+        <span style={{ fontSize: 17 }} aria-hidden>
+          🔍
+        </span>
         <input
           ref={inputRef}
           value={query}
@@ -89,16 +98,20 @@ export function PantryInput({ autoFocus }: { autoFocus?: boolean }) {
             setQuery(e.target.value);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setOpen(true);
+            setFocused(true);
+          }}
+          onBlur={() => setFocused(false)}
           onKeyDown={onKeyDown}
-          placeholder="What's in your kitchen? Try 'eggs'…"
-          aria-label="Search ingredients to add to your kitchen"
-          aria-expanded={open && results.length > 0}
+          placeholder="what's in the fridge? type it…"
+          aria-label="Add an ingredient to your kitchen"
+          aria-expanded={showSuggestions}
           aria-autocomplete="list"
+          aria-controls="fridge-suggestions"
           role="combobox"
-          aria-controls="pantry-suggestions"
-          className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[var(--text-faint)]"
-          style={{ color: "var(--text)" }}
+          className="min-w-0 flex-1 border-none bg-transparent outline-none"
+          style={{ fontSize: 16, fontWeight: 600, color: "var(--ink)" }}
         />
         {query && (
           <button
@@ -107,23 +120,32 @@ export function PantryInput({ autoFocus }: { autoFocus?: boolean }) {
               inputRef.current?.focus();
             }}
             aria-label="Clear search"
-            className="shrink-0 rounded-full p-1 transition-colors hover:bg-[var(--bg-sunken)]"
-            style={{ color: "var(--text-faint)" }}
+            style={{ fontWeight: 800, fontSize: 14, color: "var(--ink-40)" }}
           >
-            <CloseIcon />
+            ✕
           </button>
         )}
       </div>
 
-      {open && results.length > 0 && (
+      {showSuggestions && (
         <ul
-          id="pantry-suggestions"
+          id="fridge-suggestions"
           role="listbox"
-          className="animate-rise absolute inset-x-0 top-full z-20 mt-2 max-h-80 overflow-y-auto rounded-2xl p-1.5"
+          className="msc-rise absolute"
           style={{
-            background: "var(--bg-raised)",
-            border: "1px solid var(--border)",
-            boxShadow: "var(--shadow-lift)",
+            left: 12,
+            right: 12,
+            top: "100%",
+            zIndex: 20,
+            margin: "8px 0 0",
+            maxHeight: 320,
+            overflowY: "auto",
+            borderRadius: 18,
+            padding: 6,
+            listStyle: "none",
+            background: "var(--surface)",
+            border: "2px solid var(--tan-border)",
+            boxShadow: "6px 6px 0 var(--tan-shadow)",
           }}
         >
           {results.map((hit, idx) => {
@@ -134,34 +156,33 @@ export function PantryInput({ autoFocus }: { autoFocus?: boolean }) {
                 <button
                   onMouseEnter={() => setHighlight(idx)}
                   onClick={() => add(hit.id)}
-                  className={cx(
-                    "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors",
-                  )}
+                  className="flex w-full items-center text-left"
                   style={{
+                    gap: 12,
+                    borderRadius: 12,
+                    padding: "10px 12px",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    boxSizing: "border-box",
                     background:
-                      idx === highlight ? "var(--bg-sunken)" : "transparent",
-                    color: "var(--text)",
+                      idx === highlight ? "var(--ground)" : "transparent",
+                    color: "var(--ink)",
                   }}
                 >
-                  <span className="w-5 text-center" aria-hidden>
+                  <span style={{ width: 20, textAlign: "center" }} aria-hidden>
                     {ing?.emoji ?? "•"}
                   </span>
                   <span className="min-w-0 flex-1 truncate">{hit.name}</span>
-                  {already ? (
-                    <span
-                      className="shrink-0 text-xs"
-                      style={{ color: "var(--ready)" }}
-                    >
-                      in kitchen
-                    </span>
-                  ) : (
-                    <span
-                      className="shrink-0 text-xs capitalize"
-                      style={{ color: "var(--text-faint)" }}
-                    >
-                      {ing?.category}
-                    </span>
-                  )}
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      textTransform: "lowercase",
+                      color: already ? "var(--green-text)" : "var(--ink-40)",
+                    }}
+                  >
+                    {already ? "got it ✓" : ing?.category}
+                  </span>
                 </button>
               </li>
             );
@@ -169,25 +190,33 @@ export function PantryInput({ autoFocus }: { autoFocus?: boolean }) {
         </ul>
       )}
 
-      {open && query.trim().length > 1 && results.length === 0 && (
+      {showNoHits && (
         <div
-          className="animate-rise absolute inset-x-0 top-full z-20 mt-2 rounded-2xl px-4 py-3 text-sm"
+          className="msc-rise absolute"
           style={{
-            background: "var(--bg-raised)",
-            border: "1px solid var(--border)",
-            boxShadow: "var(--shadow-lift)",
-            color: "var(--text-muted)",
+            left: 12,
+            right: 12,
+            top: "100%",
+            zIndex: 20,
+            marginTop: 8,
+            borderRadius: 18,
+            padding: "12px 18px",
+            fontSize: 14,
+            fontWeight: 500,
+            background: "var(--surface)",
+            border: "2px solid var(--tan-border)",
+            boxShadow: "6px 6px 0 var(--tan-shadow)",
+            color: "var(--ink-60)",
           }}
         >
-          Nothing matching &ldquo;{query}&rdquo;. Try a simpler word — &ldquo;pepper&rdquo;
-          rather than &ldquo;romano peppers&rdquo;.
+          nothing called &ldquo;{query}&rdquo; in the catalogue. try a simpler
+          word — &ldquo;pepper&rdquo;, not &ldquo;romano peppers&rdquo;.
         </div>
       )}
     </div>
   );
 }
 
-/** One-tap adds for the things most likely to be in a kitchen already. */
 const QUICK_ADD: IngredientId[] = [
   "egg",
   "onion",
@@ -209,36 +238,43 @@ const QUICK_ADD: IngredientId[] = [
   "lemon",
 ];
 
+/** One-tap adds for the things most kitchens already contain. */
 export function QuickAdd() {
   const { state, actions } = useStore();
   const owned = new Set(state.pantry.map((p) => p.ingredientId));
-  const available = QUICK_ADD.filter((id) => !owned.has(id));
+  const available = QUICK_ADD.filter((id) => !owned.has(id)).slice(0, 12);
 
   if (available.length === 0) return null;
 
   return (
-    <div className="mt-4">
-      <p className="mb-2 text-xs font-medium" style={{ color: "var(--text-faint)" }}>
-        Quick add
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {available.slice(0, 12).map((id) => {
+    <div style={{ marginTop: 16 }}>
+      <Eyebrow>SPEEDRUN IT</Eyebrow>
+      <div className="flex flex-wrap" style={{ gap: 8, marginTop: 8 }}>
+        {available.map((id) => {
           const ing = getIngredient(id);
           if (!ing) return null;
           return (
             <button
               key={id}
               onClick={() => actions.addPantryItem(id)}
-              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-all hover:shadow-[var(--shadow-card)] active:scale-95"
+              className="msc-press msc-hover-sky flex items-center"
               style={{
-                background: "var(--bg-raised)",
-                border: "1px solid var(--border)",
-                color: "var(--text-muted)",
+                gap: 6,
+                borderRadius: 999,
+                padding: "6px 13px",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "var(--surface)",
+                border: "1.5px solid var(--tan-border)",
+                color: "var(--ink)",
               }}
             >
               {ing.emoji && <span aria-hidden>{ing.emoji}</span>}
-              {ing.name}
-              <span style={{ color: "var(--text-faint)" }} aria-hidden>
+              {ing.name.toLowerCase()}
+              <span
+                style={{ color: "var(--sky-deep)", fontWeight: 800 }}
+                aria-hidden
+              >
                 +
               </span>
             </button>
@@ -249,7 +285,6 @@ export function QuickAdd() {
   );
 }
 
-/** Load a plausible starter kitchen, so an empty app is never a dead end. */
 const DEMO_PANTRY: IngredientId[] = [
   "egg",
   "onion",
@@ -273,46 +308,10 @@ export function DemoPantryButton() {
   const { actions } = useStore();
   return (
     <Button
-      variant="secondary"
+      variant="primary"
       onClick={() => DEMO_PANTRY.forEach((id) => actions.addPantryItem(id))}
     >
-      Fill a sample kitchen
+      fill a sample kitchen 🎒
     </Button>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg
-      width={18}
-      height={18}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="var(--text-faint)"
-      strokeWidth={2}
-      strokeLinecap="round"
-      className="shrink-0"
-      aria-hidden
-    >
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg
-      width={16}
-      height={16}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      aria-hidden
-    >
-      <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
   );
 }

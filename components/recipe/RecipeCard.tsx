@@ -1,182 +1,242 @@
 "use client";
 
 import Link from "next/link";
-import { ingredientName } from "@/data/ingredients";
-import { recipeDietTags } from "@/lib/diet";
-import { totalTime } from "@/lib/match";
 import { useStore } from "@/lib/store";
+import { kitchenSubLine, plainSubLine, rescueLabel } from "@/lib/voice";
 import {
-  Badge,
-  CoverageRing,
+  CountPill,
+  SectionSubtitle,
+  STATUS_STYLE,
+  cardTilt,
+  coverageBadge,
   cuisineGlyph,
-  recipeArtwork,
-  STATUS_META,
 } from "@/components/ui/primitives";
 import type { MatchResult } from "@/lib/types";
 
 /**
- * One recipe in a grid.
+ * The Sorbet recipe card.
  *
- * The coverage ring and the missing-ingredient line are the two things a person
- * actually scans for, so they get the most prominent positions.
+ * White, tilted, with a hard offset shadow and a heart that overhangs the
+ * top-right corner. `ready` recipes get a green border and shadow; `almost`
+ * and `stretch` share neutral chrome and differ only in their tag and badge.
+ *
+ * `voice` picks which sub-line formula applies — the Kitchen is cheeky, the
+ * Browse and Saved grids are plain. Deliberate asymmetry from the design.
  */
-export function RecipeCard({ result }: { result: MatchResult }) {
-  const { recipe, status, coverage, missing, rescues } = result;
+export function RecipeCard({
+  result,
+  index,
+  voice = "plain",
+  showRescue = false,
+  forceSaved = false,
+}: {
+  result: MatchResult;
+  index: number;
+  voice?: "kitchen" | "plain";
+  showRescue?: boolean;
+  forceSaved?: boolean;
+}) {
   const { state, actions } = useStore();
-  const art = recipeArtwork(recipe.slug);
-  const meta = STATUS_META[status];
-  const saved = state.favorites.includes(recipe.id);
-  const dietTags = recipeDietTags(recipe);
+  const style = STATUS_STYLE[result.status];
+  const saved = forceSaved || state.favorites.includes(result.recipe.id);
+  const subLine =
+    voice === "kitchen"
+      ? kitchenSubLine(result, index)
+      : plainSubLine(result);
+  const rescue = showRescue && result.rescues.length > 0;
 
   return (
     <article
-      className="surface group relative flex flex-col overflow-hidden rounded-2xl transition-all hover:shadow-[var(--shadow-lift)]"
-      style={{ transitionDuration: "220ms" }}
+      className="msc-card relative"
+      style={{
+        background: "var(--surface)",
+        border: `2px solid ${style.borderColor}`,
+        borderRadius: 18,
+        padding: 18,
+        transform: `rotate(${cardTilt(index)})`,
+        boxShadow: `6px 6px 0 ${style.shadow}`,
+      }}
     >
-      <Link href={`/recipes/${recipe.slug}`} className="flex flex-1 flex-col">
-        <div
-          className="relative flex h-24 items-center justify-center"
-          style={{ background: art.gradient }}
-        >
-          <span className="text-3xl opacity-90 drop-shadow-sm" aria-hidden>
-            {cuisineGlyph(recipe.cuisine)}
+      <Link href={`/recipes/${result.recipe.slug}`} className="block">
+        <div className="flex items-center justify-between" style={{ gap: 8 }}>
+          <span
+            style={{
+              fontWeight: 800,
+              fontSize: 12,
+              letterSpacing: "0.1em",
+              color: style.tagColor,
+            }}
+          >
+            {style.tag}
           </span>
-          <div className="absolute right-3 top-3">
-            <CoverageRing
-              coverage={coverage}
-              status={status}
-              missingCount={missing.length}
-              size={44}
-            />
-          </div>
-          {rescues.length > 0 && (
-            <span
-              className="absolute left-3 top-3 rounded-full px-2 py-0.5 text-[0.68rem] font-semibold"
-              style={{ background: "var(--bg-raised)", color: "var(--stretch)" }}
-            >
-              ⏳ Uses {ingredientName(rescues[0] ?? "")}
-            </span>
-          )}
+          <span
+            style={{
+              fontWeight: 800,
+              fontSize: 14,
+              color: "var(--ink)",
+              background: style.badgeBg,
+              border: `1.5px solid ${style.badgeBorder}`,
+              borderRadius: 999,
+              padding: "2px 9px",
+            }}
+          >
+            {coverageBadge(result.missing.length)}
+          </span>
         </div>
 
-        <div className="flex flex-1 flex-col p-4">
-          <div className="mb-1.5 flex items-center gap-2 text-xs" style={{ color: "var(--text-faint)" }}>
-            <span>{recipe.cuisine}</span>
-            <span aria-hidden>·</span>
-            <span>{totalTime(recipe)} min</span>
-            <span aria-hidden>·</span>
-            <span>Serves {recipe.servings}</span>
-          </div>
+        <h3
+          style={{
+            margin: "10px 0 4px",
+            fontWeight: 700,
+            fontSize: 22,
+            lineHeight: 1.05,
+            letterSpacing: "-0.01em",
+            color: "var(--ink)",
+          }}
+        >
+          {cuisineGlyph(result.recipe.cuisine)} {result.recipe.title}
+        </h3>
 
-          <h3
-            className="font-display text-lg leading-tight"
-            style={{ color: "var(--text)" }}
+        <p
+          style={{
+            margin: 0,
+            fontSize: 13,
+            fontWeight: 500,
+            lineHeight: 1.45,
+            color: "var(--ink-55)",
+          }}
+        >
+          {subLine}
+        </p>
+
+        {rescue && (
+          <span
+            className="inline-block"
+            style={{
+              marginTop: 8,
+              fontSize: 11,
+              fontWeight: 800,
+              letterSpacing: "0.06em",
+              color: "var(--amber)",
+              background: "var(--ground)",
+              border: "1.5px solid var(--peach)",
+              borderRadius: 999,
+              padding: "2px 8px",
+            }}
           >
-            {recipe.title}
-          </h3>
-
-          <p
-            className="mt-1.5 line-clamp-2 text-sm leading-relaxed"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {recipe.description}
-          </p>
-
-          <div className="mt-auto pt-3">
-            {missing.length === 0 ? (
-              <span
-                className="text-sm font-medium"
-                style={{ color: meta.color }}
-              >
-                ✓ You have everything
-              </span>
-            ) : (
-              <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-                <span style={{ color: meta.color }} className="font-medium">
-                  Need{" "}
-                </span>
-                {missing.slice(0, 3).map(ingredientName).join(", ")}
-                {missing.length > 3 && ` +${missing.length - 3} more`}
-              </span>
-            )}
-
-            {dietTags.includes("vegan") && (
-              <Badge className="ml-2" color="var(--ready)" bg="var(--ready-bg)">
-                Vegan
-              </Badge>
-            )}
-          </div>
-        </div>
+            ⏰ {rescueLabel(result)}
+          </span>
+        )}
       </Link>
 
       <button
-        onClick={() => actions.toggleFavorite(recipe.id)}
+        onClick={() => actions.toggleFavorite(result.recipe.id)}
         aria-label={saved ? "Remove from saved" : "Save recipe"}
         aria-pressed={saved}
-        className="absolute bottom-3 right-3 rounded-full p-2 transition-all hover:scale-110 active:scale-90"
+        className="msc-heart absolute grid place-items-center"
         style={{
-          background: "var(--bg-sunken)",
-          color: saved ? "var(--stretch)" : "var(--text-faint)",
+          top: -10,
+          right: -8,
+          width: 32,
+          height: 32,
+          borderRadius: "50%",
+          background: "var(--surface)",
+          border: `2px solid ${saved ? "var(--orange)" : "var(--tan-border)"}`,
+          fontSize: 14,
+          transform: "rotate(6deg)",
+          boxShadow: "2px 2px 0 var(--tan-shadow)",
         }}
       >
-        <svg
-          width={16}
-          height={16}
-          viewBox="0 0 24 24"
-          fill={saved ? "currentColor" : "none"}
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M19.5 5.5a5 5 0 0 0-7.5.6 5 5 0 0 0-7.5-.6 5.2 5.2 0 0 0 0 7.3L12 20.5l7.5-7.7a5.2 5.2 0 0 0 0-7.3z" />
-        </svg>
+        {saved ? "💛" : "🤍"}
       </button>
     </article>
   );
 }
 
-/** A titled band of results, used for the ready / almost / stretch tiers. */
-export function ResultSection({
+/** The `repeat(auto-fill, minmax(260px, 1fr))` grid used on every screen. */
+export function CardGrid({
+  children,
+  marginTop = 16,
+}: {
+  children: React.ReactNode;
+  marginTop?: number;
+}) {
+  return (
+    <div
+      style={{
+        marginTop,
+        display: "grid",
+        gap: 20,
+        gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * One of the three Kitchen tiers.
+ *
+ * `results` is what gets rendered (the design caps "so close" at 12 cards and
+ * "worth a shop" at 6), while `total` is the real size of the tier. The count
+ * pill always shows the total — "so close 29" above twelve cards is the point,
+ * not a bug.
+ */
+export function TierSection({
   title,
   subtitle,
-  color,
   results,
-  limit,
+  total,
+  status,
+  showRescue,
+  children,
 }: {
   title: string;
-  subtitle?: string;
-  color?: string;
+  subtitle: string;
   results: MatchResult[];
-  limit?: number;
+  total?: number;
+  status: MatchResult["status"];
+  showRescue?: boolean;
+  children?: React.ReactNode;
 }) {
   if (results.length === 0) return null;
-  const shown = limit ? results.slice(0, limit) : results;
+  const style = STATUS_STYLE[status];
+  const count = total ?? results.length;
 
   return (
-    <section className="mb-10">
-      <div className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+    <section style={{ marginTop: 36 }}>
+      <div className="flex flex-wrap items-baseline" style={{ gap: 10 }}>
         <h2
-          className="font-display text-xl"
-          style={{ color: color ?? "var(--text)" }}
+          style={{
+            margin: 0,
+            fontWeight: 800,
+            fontSize: 28,
+            letterSpacing: "-0.02em",
+            color: "var(--ink)",
+          }}
         >
           {title}
         </h2>
-        <span className="text-sm tabular-nums" style={{ color: "var(--text-faint)" }}>
-          {results.length}
-        </span>
-        {subtitle && (
-          <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-            {subtitle}
-          </span>
-        )}
+        <CountPill color={style.countColor} bg={style.countBg}>
+          {count}
+        </CountPill>
+        <SectionSubtitle>{subtitle}</SectionSubtitle>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {shown.map((result) => (
-          <RecipeCard key={result.recipe.id} result={result} />
+
+      <CardGrid>
+        {results.map((result, idx) => (
+          <RecipeCard
+            key={result.recipe.id}
+            result={result}
+            index={idx}
+            voice="kitchen"
+            showRescue={showRescue}
+          />
         ))}
-      </div>
+      </CardGrid>
+
+      {children}
     </section>
   );
 }

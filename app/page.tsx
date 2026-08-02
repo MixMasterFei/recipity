@@ -7,36 +7,35 @@ import { ingredientName } from "@/data/ingredients";
 import { groupByStatus, matchPantry } from "@/lib/match";
 import { highestLeverageBuy } from "@/lib/shopping";
 import { useStore, useToday } from "@/lib/store";
+import { TIER_COPY, heroSub, leverageUnlocks, tickerText } from "@/lib/voice";
+import { Main, Ticker } from "@/components/shell/AppShell";
 import {
   DemoPantryButton,
   PantryInput,
   QuickAdd,
 } from "@/components/pantry/PantryInput";
-import {
-  ExpiringBanner,
-  PantryShelf,
-  StaplesEditor,
-} from "@/components/pantry/PantryShelf";
-import { ResultSection } from "@/components/recipe/RecipeCard";
+import { PantryShelf, StaplesEditor } from "@/components/pantry/PantryShelf";
+import { TierSection } from "@/components/recipe/RecipeCard";
 import { DietFilterBar } from "@/components/filters/DietFilterBar";
 import { InventPanel } from "@/components/invent/InventPanel";
+import { SpinThePan } from "@/components/kitchen/SpinThePan";
 import {
   Button,
-  EmptyState,
-  SkeletonGrid,
-  STATUS_META,
+  CardSkeleton,
+  EmptyPanel,
+  PillLinkStyle,
 } from "@/components/ui/primitives";
 
 /**
- * The Kitchen — the app's front door.
+ * The Kitchen — the front door.
  *
- * Add what you have at the top; the three match tiers re-rank live underneath.
+ * Add what you have; the three tiers re-rank live underneath. This is the only
+ * screen with the ticker.
  */
 export default function KitchenPage() {
   const { state, hydrated, actions } = useStore();
   const today = useToday();
 
-  // Bundled recipes plus anything Claude has invented for this user.
   const allRecipes = useMemo(
     () => [...state.invented, ...RECIPES],
     [state.invented],
@@ -59,149 +58,168 @@ export default function KitchenPage() {
 
   const leverage = useMemo(() => highestLeverageBuy(results), [results]);
   const hasPantry = state.pantry.length > 0;
+  const ticker = tickerText(hydrated, state.pantry, ready.length, today);
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:py-10">
-      <header className="mb-6">
-        <h1
-          className="font-display text-3xl leading-tight sm:text-4xl"
-          style={{ color: "var(--text)" }}
+    <>
+      <Main>
+        {/* Hero */}
+        <div
+          className="flex flex-wrap items-start justify-between"
+          style={{ gap: 28 }}
         >
-          What can I cook?
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>
-          Add what&apos;s in your fridge and cupboards. Recipity ranks every recipe
-          by how much of it you can already make.
-        </p>
-      </header>
-
-      <div className="mb-5">
-        <PantryInput autoFocus={!hasPantry} />
-        {hydrated && !hasPantry && <QuickAdd />}
-      </div>
-
-      {!hydrated ? (
-        <div className="space-y-6">
-          <div className="skeleton h-12 w-full rounded-2xl" />
-          <SkeletonGrid count={6} />
-        </div>
-      ) : !hasPantry ? (
-        <EmptyState
-          icon={<span className="text-2xl">🧺</span>}
-          title="Your kitchen is empty"
-          action={<DemoPantryButton />}
-        >
-          Add a few ingredients above and recipes will appear instantly — sorted
-          by how close you are to being able to cook them. Nothing is sent
-          anywhere; it all stays in this browser.
-        </EmptyState>
-      ) : (
-        <>
-          <div className="mb-6 space-y-4">
-            <ExpiringBanner />
-            <PantryShelf />
-            <QuickAdd />
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <StaplesEditor />
-            </div>
+          <div style={{ minWidth: "min(100%, 420px)", flex: 1 }}>
+            <h1
+              style={{
+                margin: 0,
+                fontWeight: 800,
+                fontSize: "clamp(44px, 7vw, 76px)",
+                lineHeight: 0.95,
+                letterSpacing: "-0.03em",
+                color: "var(--ink)",
+              }}
+            >
+              feed me,
+              <br />
+              i&apos;m{" "}
+              <em style={{ fontStyle: "normal", color: "var(--sky-deep)" }}>
+                bored
+              </em>
+              .
+            </h1>
+            <p
+              style={{
+                margin: "14px 0 0",
+                fontWeight: 400,
+                fontSize: 16,
+                lineHeight: 1.5,
+                color: "var(--ink-60)",
+                maxWidth: "44ch",
+              }}
+            >
+              {heroSub(hydrated, state.pantry.length, ready.length)}
+            </p>
           </div>
 
-          <div
-            className="mb-8 border-t pt-6"
-            style={{ borderColor: "var(--border)" }}
+          <SpinThePan results={results} />
+        </div>
+
+        <PantryInput autoFocus={hydrated && !hasPantry} />
+
+        {hydrated && <QuickAdd />}
+
+        {!hydrated ? (
+          <CardSkeleton />
+        ) : !hasPantry ? (
+          <EmptyPanel
+            glyph="🧺"
+            title="your kitchen is a blank canvas."
+            action={<DemoPantryButton />}
           >
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                  <strong style={{ color: "var(--text)" }}>
-                    {ready.length}
-                  </strong>{" "}
-                  {ready.length === 1 ? "recipe" : "recipes"} you can make right
-                  now, from {state.pantry.length}{" "}
-                  {state.pantry.length === 1 ? "ingredient" : "ingredients"}.
-                </p>
-              </div>
+            terrifying. add a few ingredients above and dinners appear
+            instantly, ranked by how close you are. nothing leaves this browser.
+          </EmptyPanel>
+        ) : (
+          <>
+            <PantryShelf />
+
+            <div style={{ marginTop: 18 }}>
               <DietFilterBar />
             </div>
+
+            <StaplesEditor />
 
             {leverage && (
               <Link
                 href="/list"
-                className="mb-6 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm transition-all hover:shadow-[var(--shadow-card)]"
+                className="msc-straighten inline-flex items-center"
                 style={{
-                  background: "var(--accent-soft)",
-                  color: "var(--accent)",
+                  marginTop: 20,
+                  gap: 10,
+                  borderRadius: 14,
+                  padding: "12px 18px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  background: "var(--peach)",
+                  border: "2px solid var(--orange)",
+                  color: "var(--ink)",
+                  transform: "rotate(-0.5deg)",
+                  boxShadow: "4px 4px 0 var(--tan-shadow)",
+                  transition: "transform 150ms",
                 }}
               >
-                <span className="text-lg" aria-hidden>
-                  💡
-                </span>
+                <span aria-hidden>💡</span>
                 <span>
-                  Buy{" "}
-                  <strong>{ingredientName(leverage.ingredientId)}</strong> and
-                  you unlock{" "}
+                  buy{" "}
                   <strong>
-                    {leverage.unlocks} more recipe
-                    {leverage.unlocks === 1 ? "" : "s"}
+                    {ingredientName(leverage.ingredientId).toLowerCase()}
                   </strong>
-                  .
+                  , unlock <strong>{leverageUnlocks(leverage.unlocks)}</strong> →
                 </span>
               </Link>
             )}
 
             <InventPanel />
 
-            <ResultSection
-              title="Ready to cook"
-              subtitle="Nothing missing"
-              color={STATUS_META.ready.color}
+            <TierSection
+              title={TIER_COPY.ready.title}
+              subtitle={TIER_COPY.ready.subtitle}
+              status="ready"
               results={ready}
+              showRescue
             />
-            <ResultSection
-              title="Almost there"
-              subtitle="One or two ingredients short"
-              color={STATUS_META.almost.color}
-              results={almost}
-              limit={12}
+            <TierSection
+              title={TIER_COPY.almost.title}
+              subtitle={TIER_COPY.almost.subtitle}
+              status="almost"
+              results={almost.slice(0, 12)}
+              total={almost.length}
+              showRescue
             />
-            <ResultSection
-              title="Worth a shop"
-              color={STATUS_META.stretch.color}
-              results={stretch}
-              limit={6}
-            />
+            <TierSection
+              title={TIER_COPY.stretch.title}
+              subtitle={TIER_COPY.stretch.subtitle}
+              status="stretch"
+              results={stretch.slice(0, 6)}
+              total={stretch.length}
+            >
+              {stretch.length > 6 && (
+                <div style={{ marginTop: 24, textAlign: "center" }}>
+                  <Link
+                    href="/recipes"
+                    className="msc-hover-sky inline-flex items-center"
+                    style={{ ...PillLinkStyle("outline"), gap: 8 }}
+                  >
+                    see all {allRecipes.length} recipes →
+                  </Link>
+                </div>
+              )}
+            </TierSection>
 
             {results.length === 0 && (
-              <EmptyState
-                icon={<span className="text-2xl">🥄</span>}
-                title="No recipes match your filters"
+              <EmptyPanel
+                glyph="🥄"
+                title="your eating rules ate everything."
                 action={
                   <Button
+                    variant="primary"
                     onClick={() =>
                       actions.setDiet({ ...state.diet, restrictions: [] })
                     }
                   >
-                    Clear dietary filters
+                    clear the rules
                   </Button>
                 }
               >
-                Your dietary restrictions are excluding everything in the
-                library. Try relaxing one.
-              </EmptyState>
+                every recipe in the library breaks one of your restrictions. try
+                relaxing one.
+              </EmptyPanel>
             )}
+          </>
+        )}
+      </Main>
 
-            {stretch.length > 6 && (
-              <div className="text-center">
-                <Link href="/recipes">
-                  <Button variant="secondary">
-                    Browse all {allRecipes.length} recipes
-                  </Button>
-                </Link>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-    </div>
+      <Ticker text={ticker} />
+    </>
   );
 }

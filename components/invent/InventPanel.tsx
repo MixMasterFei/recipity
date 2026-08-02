@@ -7,12 +7,13 @@ import { Button } from "@/components/ui/primitives";
 import type { Recipe } from "@/lib/types";
 
 /**
- * "Invent something" — asks Claude for an original recipe built from the
- * user's exact pantry.
+ * "make something up" — Claude writes an original recipe from exactly what's
+ * in the fridge.
  *
- * The panel asks the route whether it's enabled before rendering anything, so
- * when no API key is configured the feature is simply absent rather than
- * offering a button that fails.
+ * Not part of the Sorbet design, so it's built in Sorbet's language: dashed
+ * panel, offset-shadow pill, lowercase voice. The panel asks the route whether
+ * it's enabled before rendering anything, so with no API key configured the
+ * feature is simply absent rather than a button that fails.
  */
 export function InventPanel() {
   const { state, actions } = useStore();
@@ -20,7 +21,6 @@ export function InventPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mood, setMood] = useState("");
-  const [expanded, setExpanded] = useState(false);
   const [latest, setLatest] = useState<Recipe | null>(null);
 
   useEffect(() => {
@@ -61,7 +61,7 @@ export function InventPanel() {
       };
 
       if (!response.ok || !data.recipe) {
-        setError(data.error ?? "Couldn't invent a recipe just now.");
+        setError(data.error ?? "couldn't invent anything just now.");
         return;
       }
 
@@ -69,7 +69,7 @@ export function InventPanel() {
       setLatest(data.recipe);
       setMood("");
     } catch {
-      setError("Network problem — check your connection and try again.");
+      setError("network problem. try again.");
     } finally {
       setBusy(false);
     }
@@ -77,67 +77,76 @@ export function InventPanel() {
 
   return (
     <section
-      className="mb-8 rounded-2xl p-4 sm:p-5"
       style={{
-        background: "var(--bg-sunken)",
-        border: "1px dashed var(--border-strong)",
+        marginTop: 24,
+        borderRadius: 24,
+        padding: "20px 22px",
+        border: "2px dashed var(--tan-dashed)",
       }}
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between" style={{ gap: 12 }}>
         <div className="min-w-0">
           <h2
-            className="font-display flex items-center gap-2 text-lg"
-            style={{ color: "var(--text)" }}
+            style={{
+              margin: 0,
+              fontWeight: 800,
+              fontSize: 22,
+              letterSpacing: "-0.02em",
+              color: "var(--ink)",
+            }}
           >
-            <span aria-hidden>✨</span> Invent something
+            ✨ make something up
           </h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--text-muted)" }}>
-            Nothing in the library appealing? Have Claude write one from exactly
-            what you have.
+          <p
+            style={{
+              margin: "4px 0 0",
+              fontSize: 13,
+              fontWeight: 500,
+              color: "var(--ink-60)",
+            }}
+          >
+            nothing in the cookbook doing it for you? have claude invent one
+            from exactly what you have.
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setExpanded(!expanded)}
-          >
-            {expanded ? "Hide options" : "Add a nudge"}
-          </Button>
-          <Button variant="primary" onClick={invent} disabled={busy}>
-            {busy ? "Thinking…" : "Invent a recipe"}
-          </Button>
-        </div>
+        <Button variant="primary" onClick={invent} disabled={busy}>
+          {busy ? "thinking…" : "invent a dinner 🎲"}
+        </Button>
       </div>
 
-      {expanded && (
-        <input
-          value={mood}
-          onChange={(e) => setMood(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !busy) invent();
-          }}
-          placeholder="Something quick and spicy… / comfort food… / no oven"
-          aria-label="What kind of dish do you feel like?"
-          className="mt-3 w-full rounded-xl px-3 py-2.5 text-sm outline-none"
-          style={{
-            background: "var(--bg-raised)",
-            border: "1px solid var(--border)",
-            color: "var(--text)",
-          }}
-        />
-      )}
+      <input
+        value={mood}
+        onChange={(e) => setMood(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !busy) invent();
+        }}
+        placeholder="quick and spicy… / comfort food… / no oven"
+        aria-label="What kind of dish do you feel like?"
+        style={{
+          marginTop: 14,
+          width: "100%",
+          boxSizing: "border-box",
+          borderRadius: 999,
+          padding: "10px 18px",
+          fontSize: 14,
+          fontWeight: 600,
+          outline: "none",
+          background: "var(--surface)",
+          border: "2px solid var(--tan-border)",
+          color: "var(--ink)",
+        }}
+      />
 
       {busy && (
-        <div className="mt-4 space-y-2">
-          <div className="skeleton h-4 w-1/3 rounded" />
-          <div className="skeleton h-3 w-full rounded" />
-          <div className="skeleton h-3 w-4/5 rounded" />
+        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="msc-skeleton" style={{ height: 14, width: "35%", borderRadius: 999 }} />
+          <div className="msc-skeleton" style={{ height: 12, width: "100%", borderRadius: 999 }} />
+          <div className="msc-skeleton" style={{ height: 12, width: "80%", borderRadius: 999 }} />
         </div>
       )}
 
       {error && (
-        <p className="mt-3 text-sm" style={{ color: "var(--stretch)" }}>
+        <p style={{ marginTop: 12, fontSize: 13, fontWeight: 600, color: "var(--orange)" }}>
           {error}
         </p>
       )}
@@ -145,21 +154,30 @@ export function InventPanel() {
       {latest && (
         <Link
           href={`/recipes/${latest.slug}`}
-          className="animate-rise mt-4 flex items-center gap-3 rounded-xl px-4 py-3 transition-all hover:shadow-[var(--shadow-card)]"
+          className="msc-pop flex items-center"
           style={{
-            background: "var(--bg-raised)",
-            border: "1px solid var(--border)",
+            marginTop: 14,
+            gap: 12,
+            borderRadius: 14,
+            padding: "12px 16px",
+            background: "var(--surface)",
+            border: "2px solid var(--green-stroke)",
+            boxShadow: "4px 4px 0 var(--green-pale)",
+            transform: "rotate(-0.5deg)",
           }}
         >
-          <span className="text-xl" aria-hidden>
+          <span style={{ fontSize: 20 }} aria-hidden>
             🍳
           </span>
           <span className="min-w-0">
-            <strong className="block truncate" style={{ color: "var(--text)" }}>
+            <strong
+              className="block truncate"
+              style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)" }}
+            >
               {latest.title}
             </strong>
-            <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-              {latest.prepMin + latest.cookMin} min · tap to read the method
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--ink-55)" }}>
+              {latest.prepMin + latest.cookMin} min · tap for the method
             </span>
           </span>
         </Link>

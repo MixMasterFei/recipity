@@ -2,19 +2,21 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { RECIPES, RECIPE_BY_SLUG } from "@/data/recipes";
+import { RECIPE_BY_SLUG } from "@/data/recipes";
 import { scoreRecipe } from "@/lib/match";
 import { useStore, useToday } from "@/lib/store";
-import { RecipeCard } from "@/components/recipe/RecipeCard";
-import { Button, EmptyState, SkeletonGrid } from "@/components/ui/primitives";
+import { Main } from "@/components/shell/AppShell";
+import { CardGrid, RecipeCard } from "@/components/recipe/RecipeCard";
+import {
+  CardSkeleton,
+  CountPill,
+  EmptyPanel,
+  Headline,
+  PillLinkStyle,
+} from "@/components/ui/primitives";
 import type { Recipe } from "@/lib/types";
 
-/**
- * Saved recipes, invented recipes, and cook history.
- *
- * History is deliberately simple — what you cooked and when. It's enough to
- * answer "what did I make last Tuesday" without turning into a food diary.
- */
+/** The keepers — favourites, invented recipes, and what you've cooked. */
 export default function SavedPage() {
   const { state, hydrated } = useStore();
   const today = useToday();
@@ -54,8 +56,8 @@ export default function SavedPage() {
     () =>
       state.history
         .map((event) => ({ event, recipe: lookup.get(event.recipeId) }))
-        .filter((entry): entry is { event: typeof entry.event; recipe: Recipe } =>
-          Boolean(entry.recipe),
+        .filter((e): e is { event: typeof e.event; recipe: Recipe } =>
+          Boolean(e.recipe),
         )
         .slice(0, 20),
     [state.history, lookup],
@@ -63,10 +65,10 @@ export default function SavedPage() {
 
   if (!hydrated) {
     return (
-      <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
-        <div className="skeleton mb-6 h-10 w-40 rounded" />
-        <SkeletonGrid count={3} />
-      </div>
+      <Main>
+        <Headline before="the " accent="keepers" after="." />
+        <CardSkeleton />
+      </Main>
     );
   }
 
@@ -74,108 +76,155 @@ export default function SavedPage() {
     favorites.length === 0 && invented.length === 0 && history.length === 0;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:py-10">
-      <header className="mb-6">
-        <h1
-          className="font-display text-3xl leading-tight sm:text-4xl"
-          style={{ color: "var(--text)" }}
-        >
-          Saved
-        </h1>
-      </header>
+    <Main>
+      <Headline before="the " accent="keepers" after="." />
 
       {nothingAtAll ? (
-        <EmptyState
-          icon={<span className="text-2xl">♡</span>}
-          title="Nothing saved yet"
+        <EmptyPanel
+          glyph="🤍"
+          title="no keepers yet."
           action={
-            <Link href="/recipes">
-              <Button variant="primary">Browse recipes</Button>
+            <Link href="/recipes" style={PillLinkStyle("primary")}>
+              browse the cookbook →
             </Link>
           }
         >
-          Tap the heart on any recipe to keep it here. Recipes Claude invents for
-          you also land on this page.
-        </EmptyState>
+          tap the heart on any recipe and it lives here forever. or until you
+          unheart it. brutal.
+        </EmptyPanel>
       ) : (
-        <div className="space-y-10">
+        <div
+          style={{
+            marginTop: 24,
+            display: "flex",
+            flexDirection: "column",
+            gap: 40,
+          }}
+        >
           {favorites.length > 0 && (
             <section>
-              <h2
-                className="font-display mb-4 text-xl"
-                style={{ color: "var(--text)" }}
-              >
-                Favourites{" "}
-                <span
-                  className="text-sm tabular-nums"
-                  style={{ color: "var(--text-faint)" }}
+              <div className="flex items-baseline" style={{ gap: 10 }}>
+                <h2
+                  style={{
+                    margin: 0,
+                    fontWeight: 800,
+                    fontSize: 28,
+                    letterSpacing: "-0.02em",
+                    color: "var(--ink)",
+                  }}
                 >
+                  hearted
+                </h2>
+                <CountPill color="var(--amber)" bg="var(--peach)">
                   {favorites.length}
-                </span>
-              </h2>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {favorites.map((result) => (
-                  <RecipeCard key={result.recipe.id} result={result} />
-                ))}
+                </CountPill>
               </div>
+              <CardGrid>
+                {favorites.map((result, idx) => (
+                  <RecipeCard
+                    key={result.recipe.id}
+                    result={result}
+                    index={idx}
+                    forceSaved
+                  />
+                ))}
+              </CardGrid>
             </section>
           )}
 
           {invented.length > 0 && (
             <section>
-              <h2
-                className="font-display mb-1 text-xl"
-                style={{ color: "var(--text)" }}
-              >
-                ✨ Invented for you{" "}
-                <span
-                  className="text-sm tabular-nums"
-                  style={{ color: "var(--text-faint)" }}
+              <div className="flex items-baseline" style={{ gap: 10 }}>
+                <h2
+                  style={{
+                    margin: 0,
+                    fontWeight: 800,
+                    fontSize: 28,
+                    letterSpacing: "-0.02em",
+                    color: "var(--ink)",
+                  }}
                 >
+                  ✨ invented for you
+                </h2>
+                <CountPill color="var(--sky-deep)" bg="var(--sky)">
                   {invented.length}
-                </span>
-              </h2>
-              <p className="mb-4 text-sm" style={{ color: "var(--text-muted)" }}>
-                Written by Claude from what was in your kitchen at the time.
-              </p>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {invented.map((result) => (
-                  <RecipeCard key={result.recipe.id} result={result} />
-                ))}
+                </CountPill>
               </div>
+              <CardGrid>
+                {invented.map((result, idx) => (
+                  <RecipeCard
+                    key={result.recipe.id}
+                    result={result}
+                    index={idx}
+                  />
+                ))}
+              </CardGrid>
             </section>
           )}
 
           {history.length > 0 && (
             <section>
               <h2
-                className="font-display mb-4 text-xl"
-                style={{ color: "var(--text)" }}
+                style={{
+                  margin: "0 0 14px",
+                  fontWeight: 800,
+                  fontSize: 28,
+                  letterSpacing: "-0.02em",
+                  color: "var(--ink)",
+                }}
               >
-                Recently cooked
+                cooked &amp; conquered
               </h2>
-              <ul className="space-y-1.5">
+              <ul
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                  margin: 0,
+                  padding: 0,
+                  listStyle: "none",
+                }}
+              >
                 {history.map(({ event, recipe }, idx) => (
                   <li key={`${event.recipeId}-${idx}`}>
                     <Link
                       href={`/recipes/${recipe.slug}`}
-                      className="surface-flat flex items-center gap-3 rounded-xl px-4 py-3 transition-all hover:shadow-[var(--shadow-card)]"
+                      className="msc-hover-sky flex items-center"
+                      style={{
+                        gap: 12,
+                        borderRadius: 14,
+                        padding: "12px 16px",
+                        background: "var(--surface)",
+                        border: "2px solid var(--tan-border)",
+                        transition: "border-color 150ms",
+                      }}
                     >
                       <span className="min-w-0 flex-1">
                         <span
-                          className="block truncate text-sm font-medium"
-                          style={{ color: "var(--text)" }}
+                          className="block truncate"
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 700,
+                            color: "var(--ink)",
+                          }}
                         >
                           {recipe.title}
                         </span>
                         <span
-                          className="block text-xs"
-                          style={{ color: "var(--text-faint)" }}
+                          className="block"
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: "var(--ink-45)",
+                          }}
                         >
                           {formatWhen(event.cookedAt)}
                         </span>
                       </span>
-                      <span style={{ color: "var(--text-faint)" }} aria-hidden>
+                      <span
+                        style={{ color: "var(--sky-deep)", fontWeight: 800 }}
+                        aria-hidden
+                      >
                         →
                       </span>
                     </Link>
@@ -186,19 +235,22 @@ export default function SavedPage() {
           )}
         </div>
       )}
-    </div>
+    </Main>
   );
 }
 
 function formatWhen(iso: string): string {
   const then = new Date(iso);
   const days = Math.floor((Date.now() - then.getTime()) / 86_400_000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
   if (days < 7) return `${days} days ago`;
-  return then.toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: then.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
-  });
+  return then
+    .toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+      year:
+        then.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+    })
+    .toLowerCase();
 }

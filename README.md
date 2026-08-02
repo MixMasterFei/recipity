@@ -1,6 +1,6 @@
-# Recipity
+# Midnight Snack Club
 
-Tell Recipity what's in your kitchen. It tells you what you can cook.
+Tell the club what's in your fridge. It tells you what you can cook.
 
 Not a recipe search box — a matching engine. Every recipe is scored against
 your actual ingredients, so the ones you can make *right now* rise to the top,
@@ -16,7 +16,8 @@ browser's localStorage and never leaves it.
   canonical ingredients. Aliases work: type "green onions" or "courgette" and it
   resolves them. Optionally tag anything with a use-by date.
 - **Live matching** — 139 recipes re-ranked on every change, split into
-  *Ready to cook* / *Almost there* / *Worth a shop*.
+  *ready rn* / *so close* / *worth a shop*.
+- **Spin the pan** — can't decide? It picks for you, slot-machine style.
 - **Shopping list** — one tap adds a recipe's missing ingredients, deduped
   across recipes and grouped by supermarket aisle. Tick things off and move them
   straight into your kitchen.
@@ -24,7 +25,7 @@ browser's localStorage and never leaves it.
   nut-free. Applied as a hard filter, so restricted recipes never appear at all.
 - **Favourites & cook history** — and marking something cooked can deduct what
   it used from your pantry.
-- **Invent something** — optional: has Claude write an original recipe from
+- **Make something up** — optional: has Claude write an original recipe from
   exactly what you have. See [enabling it](#enabling-recipe-invention).
 
 ## Running it
@@ -88,7 +89,7 @@ tests/          engine + data-integrity tests
 
 ## Enabling recipe invention
 
-The "Invent something" panel is built and wired but ships **switched off**,
+The "make something up" panel is built and wired but ships **switched off**,
 because it needs an Anthropic API key. Without one, `GET /api/invent` returns
 `{"enabled": false}` and the UI hides the feature entirely — nothing else in the
 app depends on it.
@@ -108,11 +109,29 @@ and every ingredient name it produces is run back through `lib/normalize.ts`.
 That's what lets an invented recipe join matching, the shopping list and
 favourites like any bundled one.
 
+## Design
+
+The interface is a clone of the **Sorbet** direction produced by Claude Design
+from this codebase — one typeface (Bricolage Grotesque), a cream/slate/sky/peach
+palette, hard 0-blur offset shadows, and small deliberate rotations on almost
+every raised element. `lib/voice.ts` holds the copy vocabulary, including the
+ready-state quips that cycle by card index rather than at random.
+
+Four things depart from that design, on purpose:
+
+1. **The fridge is grouped by aisle.** Sorbet uses one flat alphabetical row.
+2. **There's a dark mode.** Sorbet hardcodes every hex and has no theme system,
+   so the light values here map 1:1 to its literals and the dark set is derived.
+3. **The AI invent panel exists**, restyled into Sorbet's language.
+4. **The staples editor exists** — the engine excludes staples from both sides of
+   the coverage fraction, so that set has to stay adjustable.
+
 ## Notes
 
-- **No food photography.** Licensed stock imagery needs an API and a mismatched
-  or broken photo looks far worse than none, so each recipe gets a deterministic
-  warm gradient keyed to its slug plus a cuisine glyph.
+- **No food photography, and no artwork at all.** Sorbet's cards are plain
+  white with a cuisine emoji beside the title — there are zero `<svg>` elements
+  and no images in the whole design. Licensed stock imagery would need an API,
+  and a mismatched photo looks far worse than none.
 - **Recipes are hand-authored**, not scraped — real quantities, real timings,
   weighted toward dishes built from common staples so matches actually fire.
 - **Hydration** is handled once, in `lib/store.tsx`. State starts empty and

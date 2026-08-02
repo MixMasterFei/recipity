@@ -2,24 +2,28 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { getIngredient } from "@/data/ingredients";
+import { AISLE_LABEL, getIngredient } from "@/data/ingredients";
 import { RECIPE_BY_SLUG } from "@/data/recipes";
 import { groupByAisle } from "@/lib/shopping";
 import { useStore } from "@/lib/store";
+import { Main } from "@/components/shell/AppShell";
 import {
   Button,
-  EmptyState,
+  EmptyPanel,
+  Headline,
+  PillLinkStyle,
+  RowSkeleton,
   cx,
 } from "@/components/ui/primitives";
 
 /**
- * Shopping list — deduped across recipes and grouped by aisle.
+ * The haul.
  *
- * The useful trick here is "move bought items into the kitchen": ticking things
- * off and pressing one button updates the pantry, which immediately re-ranks
- * every recipe in the app.
+ * Deduped across recipes and grouped by aisle so you walk the shop once. The
+ * useful trick is "move to my kitchen": ticking things off and pressing one
+ * button updates the pantry, which immediately re-ranks every recipe.
  */
-export default function ShoppingListPage() {
+export default function ShoppingPage() {
   const { state, hydrated, actions } = useStore();
 
   const groups = useMemo(
@@ -32,77 +36,114 @@ export default function ShoppingListPage() {
 
   if (!hydrated) {
     return (
-      <div className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6">
-        <div className="skeleton mb-6 h-10 w-48 rounded" />
-        <div className="space-y-3">
-          {Array.from({ length: 5 }, (_, i) => (
-            <div key={i} className="skeleton h-12 w-full rounded-xl" />
-          ))}
-        </div>
-      </div>
+      <Main max={760}>
+        <Headline before="the " accent="haul" after="." />
+        <RowSkeleton count={5} />
+      </Main>
     );
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6 lg:py-10">
-      <header className="mb-6">
-        <h1
-          className="font-display text-3xl leading-tight sm:text-4xl"
-          style={{ color: "var(--text)" }}
+    <Main max={760}>
+      <Headline before="the " accent="haul" after="." />
+
+      {total > 0 && (
+        <p
+          style={{
+            margin: "12px 0 0",
+            fontSize: 15,
+            fontWeight: 500,
+            color: "var(--ink-60)",
+          }}
         >
-          Shopping list
-        </h1>
-        {total > 0 && (
-          <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>
-            {checkedCount} of {total} ticked off, grouped by aisle.
-          </p>
-        )}
-      </header>
+          {checkedCount} of {total} in the basket, grouped by aisle so you walk
+          the shop once.
+        </p>
+      )}
 
       {total === 0 ? (
-        <EmptyState
-          icon={<span className="text-2xl">🛒</span>}
-          title="Nothing on the list"
+        <EmptyPanel
+          glyph="🛒"
+          title="the cart is empty. sinister."
+          bodyWidth="42ch"
           action={
-            <Link href="/">
-              <Button variant="primary">Find recipes</Button>
+            <Link href="/" style={PillLinkStyle("primary")}>
+              find dinners →
             </Link>
           }
         >
-          Open any recipe you&apos;re missing ingredients for and press
-          &ldquo;add missing to list&rdquo;. Items from different recipes get
-          merged automatically.
-        </EmptyState>
+          open any recipe you&apos;re missing things for and hit &ldquo;add
+          missing to the haul&rdquo;. duplicates merge themselves.
+        </EmptyPanel>
       ) : (
         <>
           {checkedCount > 0 && (
             <div
-              className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3"
-              style={{ background: "var(--ready-bg)" }}
+              className="flex flex-wrap items-center justify-between"
+              style={{
+                marginTop: 20,
+                gap: 12,
+                borderRadius: 16,
+                padding: "14px 18px",
+                background: "var(--green-fill)",
+                border: "2px solid var(--green-stroke)",
+                transform: "rotate(-0.4deg)",
+                boxShadow: "4px 4px 0 var(--green-pale)",
+              }}
             >
-              <span className="text-sm" style={{ color: "var(--ready)" }}>
-                {checkedCount} item{checkedCount === 1 ? "" : "s"} in the basket
+              <span style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)" }}>
+                {checkedCount} {checkedCount === 1 ? "thing" : "things"} in the
+                basket. nice.
               </span>
-              <Button
-                size="sm"
-                variant="primary"
+              <button
                 onClick={actions.checkedToPantry}
+                className="msc-press"
+                style={{
+                  borderRadius: 999,
+                  fontWeight: 700,
+                  fontSize: 13,
+                  padding: "8px 15px",
+                  background: "var(--surface)",
+                  border: "2px solid var(--green-text)",
+                  color: "var(--ink)",
+                }}
               >
-                Move to my kitchen
-              </Button>
+                move to my kitchen 🏠
+              </button>
             </div>
           )}
 
-          <div className="space-y-6">
+          <div
+            style={{
+              marginTop: 24,
+              display: "flex",
+              flexDirection: "column",
+              gap: 26,
+            }}
+          >
             {groups.map((group) => (
               <section key={group.aisle}>
                 <h2
-                  className="mb-2 text-xs font-semibold uppercase tracking-wide"
-                  style={{ color: "var(--text-faint)" }}
+                  style={{
+                    margin: "0 0 10px",
+                    fontSize: 12,
+                    fontWeight: 800,
+                    letterSpacing: "0.14em",
+                    color: "var(--ink-45)",
+                  }}
                 >
-                  {group.label}
+                  {AISLE_LABEL[group.aisle].toUpperCase()}
                 </h2>
-                <ul className="space-y-1.5">
+                <ul
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                    margin: 0,
+                    padding: 0,
+                    listStyle: "none",
+                  }}
+                >
                   {group.items.map((item) => {
                     const ing = getIngredient(item.ingredientId);
                     const recipeNames = item.forRecipes
@@ -112,8 +153,15 @@ export default function ShoppingListPage() {
                     return (
                       <li key={item.ingredientId}>
                         <div
-                          className="surface-flat flex items-center gap-3 rounded-xl px-3 py-2.5"
-                          style={{ opacity: item.checked ? 0.55 : 1 }}
+                          className="flex items-center"
+                          style={{
+                            gap: 12,
+                            borderRadius: 14,
+                            padding: "11px 14px",
+                            background: "var(--surface)",
+                            border: "2px solid var(--tan-border)",
+                            opacity: item.checked ? 0.55 : 1,
+                          }}
                         >
                           <button
                             onClick={() =>
@@ -122,55 +170,52 @@ export default function ShoppingListPage() {
                             role="checkbox"
                             aria-checked={item.checked}
                             aria-label={`Tick off ${ing?.name ?? item.ingredientId}`}
-                            className="grid h-5 w-5 shrink-0 place-items-center rounded-md transition-colors"
+                            className="grid shrink-0 place-items-center"
                             style={{
+                              height: 24,
+                              width: 24,
+                              borderRadius: 8,
+                              transition: "background 150ms",
                               background: item.checked
-                                ? "var(--ready)"
-                                : "transparent",
-                              border: `1.5px solid ${
-                                item.checked ? "var(--ready)" : "var(--border-strong)"
+                                ? "var(--green-stroke)"
+                                : "var(--ground)",
+                              border: `2px solid ${
+                                item.checked
+                                  ? "var(--green-text)"
+                                  : "var(--tan-dashed)"
                               }`,
-                              color: "var(--bg)",
+                              color: "#ffffff",
+                              fontWeight: 800,
+                              fontSize: 13,
                             }}
                           >
-                            {item.checked && (
-                              <svg
-                                width={12}
-                                height={12}
-                                viewBox="0 0 16 16"
-                                fill="none"
-                                aria-hidden
-                              >
-                                <path
-                                  d="M3 8.5L6.5 12L13 4.5"
-                                  stroke="currentColor"
-                                  strokeWidth="2.5"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                />
-                              </svg>
-                            )}
+                            {item.checked ? "✓" : ""}
                           </button>
 
                           <span className="min-w-0 flex-1">
                             <span
-                              className={cx(
-                                "block text-sm",
-                                item.checked && "line-through",
-                              )}
-                              style={{ color: "var(--text)" }}
+                              className={cx("block", item.checked && "line-through")}
+                              style={{
+                                fontSize: 14,
+                                fontWeight: 600,
+                                color: "var(--ink)",
+                              }}
                             >
                               {ing?.emoji && (
-                                <span className="mr-1" aria-hidden>
+                                <span style={{ marginRight: 4 }} aria-hidden>
                                   {ing.emoji}
                                 </span>
                               )}
-                              {ing?.name ?? item.ingredientId}
+                              {(ing?.name ?? item.ingredientId).toLowerCase()}
                             </span>
                             {recipeNames.length > 0 && (
                               <span
-                                className="block truncate text-xs"
-                                style={{ color: "var(--text-faint)" }}
+                                className="block truncate"
+                                style={{
+                                  fontSize: 12,
+                                  fontWeight: 500,
+                                  color: "var(--ink-45)",
+                                }}
                               >
                                 for {recipeNames.join(", ")}
                               </span>
@@ -182,21 +227,15 @@ export default function ShoppingListPage() {
                               actions.removeShoppingItem(item.ingredientId)
                             }
                             aria-label={`Remove ${ing?.name ?? "item"} from list`}
-                            className="shrink-0 rounded-full p-1.5 transition-colors hover:bg-[var(--bg-sunken)]"
-                            style={{ color: "var(--text-faint)" }}
+                            className="msc-hover-orange shrink-0"
+                            style={{
+                              fontWeight: 800,
+                              fontSize: 13,
+                              color: "var(--ink-35)",
+                              padding: 4,
+                            }}
                           >
-                            <svg
-                              width={14}
-                              height={14}
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                              strokeLinecap="round"
-                              aria-hidden
-                            >
-                              <path d="M18 6 6 18M6 6l12 12" />
-                            </svg>
+                            ✕
                           </button>
                         </div>
                       </li>
@@ -207,19 +246,18 @@ export default function ShoppingListPage() {
             ))}
           </div>
 
-          <div className="mt-8 flex justify-center">
+          <div style={{ marginTop: 32, display: "flex", justifyContent: "center" }}>
             <Button
-              variant="ghost"
+              variant="quiet"
               onClick={() => {
-                if (confirm("Clear the whole shopping list?"))
-                  actions.clearShoppingList();
+                if (confirm("Torch the whole list?")) actions.clearShoppingList();
               }}
             >
-              Clear list
+              torch the whole list 🔥
             </Button>
           </div>
         </>
       )}
-    </div>
+    </Main>
   );
 }

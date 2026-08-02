@@ -1,48 +1,44 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Inter } from "next/font/google";
+import { Bricolage_Grotesque } from "next/font/google";
 import { StoreProvider } from "@/lib/store";
 import { AppShell } from "@/components/shell/AppShell";
 import "./globals.css";
 
-const inter = Inter({
+/**
+ * Sorbet uses a single variable typeface everywhere — no display/body split.
+ * The `opsz` axis matches the design's Google Fonts request
+ * (`opsz,wght@12..96,300..800`).
+ */
+const bricolage = Bricolage_Grotesque({
   subsets: ["latin"],
-  variable: "--font-inter",
+  variable: "--font-bricolage",
   display: "swap",
-});
-
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  variable: "--font-fraunces",
-  display: "swap",
-  axes: ["SOFT", "WONK"],
+  axes: ["opsz"],
 });
 
 export const metadata: Metadata = {
-  title: "Recipity — cook what you already have",
+  title: "Midnight Snack Club — cook what you have",
   description:
-    "Tell Recipity what's in your kitchen and it finds the recipes you can make right now, the ones you're two ingredients away from, and what to use up before it goes off.",
-  applicationName: "Recipity",
-  appleWebApp: { capable: true, title: "Recipity" },
+    "Tell the club what's in your fridge. It tells you what you can cook right now, what you're one ingredient away from, and what to use up before it turns.",
+  applicationName: "Midnight Snack Club",
+  appleWebApp: { capable: true, title: "Midnight Snack Club" },
 };
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#fdfbf7" },
-    { media: "(prefers-color-scheme: dark)", color: "#17110c" },
+    { media: "(prefers-color-scheme: light)", color: "#fbf5e4" },
+    { media: "(prefers-color-scheme: dark)", color: "#22292f" },
   ],
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
 };
 
-/**
- * Applied before paint so a dark-mode user never sees a white flash.
- * Inline because it has to run before React hydrates.
- */
+/** Runs before paint so a dark-mode user never sees a cream flash. */
 const THEME_SCRIPT = `
 (function(){
   try {
-    var stored = localStorage.getItem('recipity.theme');
+    var stored = localStorage.getItem('msc.theme');
     if (stored === 'light' || stored === 'dark') {
       document.documentElement.setAttribute('data-theme', stored);
     }
@@ -56,7 +52,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${inter.variable} ${fraunces.variable}`}>
+    <html lang="en" className={bricolage.variable}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>

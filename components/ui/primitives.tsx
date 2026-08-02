@@ -2,199 +2,193 @@
 
 import type { MatchStatus } from "@/lib/types";
 
-/** Shared visual primitives. Small, unopinionated, used everywhere. */
+/**
+ * Sorbet primitives.
+ *
+ * The design contains zero `<svg>` elements — the coverage ring and the
+ * gradient card artwork from the previous build are gone, replaced by a text
+ * pill and an emoji. Every raised surface carries a hard 0-blur offset shadow
+ * and a small rotation.
+ */
 
 export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
 }
 
 /* ------------------------------------------------------------------ */
-/* Match status vocabulary                                             */
+/* Status vocabulary                                                   */
 /* ------------------------------------------------------------------ */
 
-export const STATUS_META: Record<
-  MatchStatus,
-  { label: string; color: string; bg: string; blurb: string }
-> = {
+export interface StatusStyle {
+  tag: string;
+  tagColor: string;
+  borderColor: string;
+  shadow: string;
+  badgeBg: string;
+  badgeBorder: string;
+  countColor: string;
+  countBg: string;
+}
+
+/**
+ * `ready` turns the whole card border green. `almost` and `stretch` share the
+ * neutral tan chrome and are told apart only by their tag and badge colours.
+ */
+export const STATUS_STYLE: Record<MatchStatus, StatusStyle> = {
   ready: {
-    label: "Ready to cook",
-    color: "var(--ready)",
-    bg: "var(--ready-bg)",
-    blurb: "You have everything",
+    tag: "READY RN",
+    tagColor: "var(--green-text)",
+    borderColor: "var(--green-stroke)",
+    shadow: "var(--green-pale)",
+    badgeBg: "var(--green-fill)",
+    badgeBorder: "var(--green-stroke)",
+    countColor: "var(--green-text)",
+    countBg: "var(--green-fill)",
   },
   almost: {
-    label: "Almost there",
-    color: "var(--almost)",
-    bg: "var(--almost-bg)",
-    blurb: "A couple of things short",
+    tag: "SO CLOSE",
+    tagColor: "var(--amber)",
+    borderColor: "var(--tan-border)",
+    shadow: "var(--tan-shadow)",
+    badgeBg: "var(--peach)",
+    badgeBorder: "var(--orange)",
+    countColor: "var(--amber)",
+    countBg: "var(--peach)",
   },
   stretch: {
-    label: "Worth a shop",
-    color: "var(--stretch)",
-    bg: "var(--stretch-bg)",
-    blurb: "Needs a few more ingredients",
+    tag: "WORTH A SHOP",
+    tagColor: "var(--sky-deep)",
+    borderColor: "var(--tan-border)",
+    shadow: "var(--tan-shadow)",
+    badgeBg: "var(--sky)",
+    badgeBorder: "var(--sky-deep)",
+    countColor: "var(--sky-deep)",
+    countBg: "var(--sky)",
   },
 };
 
-/* ------------------------------------------------------------------ */
-/* Coverage ring — the signature element                               */
-/* ------------------------------------------------------------------ */
-
-/**
- * An SVG arc filled to the match percentage, with the missing count in the
- * middle. Legible at a glance across a grid, which is the whole job.
- */
-export function CoverageRing({
-  coverage,
-  status,
-  missingCount,
-  size = 48,
-}: {
-  coverage: number;
-  status: MatchStatus;
-  missingCount: number;
-  size?: number;
-}) {
-  const stroke = size >= 44 ? 4 : 3;
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const dash = Math.max(0, Math.min(1, coverage)) * circumference;
-  const meta = STATUS_META[status];
-
-  return (
-    <div
-      className="relative shrink-0"
-      style={{ width: size, height: size }}
-      role="img"
-      aria-label={
-        missingCount === 0
-          ? "You have every ingredient"
-          : `Missing ${missingCount} ingredient${missingCount === 1 ? "" : "s"}`
-      }
-    >
-      <svg width={size} height={size} className="-rotate-90">
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="var(--border)"
-          strokeWidth={stroke}
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke={meta.color}
-          strokeWidth={stroke}
-          strokeDasharray={`${dash} ${circumference}`}
-          strokeLinecap="round"
-          style={{ transition: "stroke-dasharray 400ms cubic-bezier(.22,1,.36,1)" }}
-        />
-      </svg>
-      <span
-        className="absolute inset-0 grid place-items-center font-semibold tabular-nums"
-        style={{
-          color: meta.color,
-          fontSize: size >= 44 ? "0.8rem" : "0.68rem",
-        }}
-      >
-        {missingCount === 0 ? (
-          <CheckGlyph size={size >= 44 ? 16 : 12} />
-        ) : (
-          `−${missingCount}`
-        )}
-      </span>
-    </div>
-  );
+/** `100%` or `−3`. The minus is U+2212, not a hyphen. */
+export function coverageBadge(missingCount: number): string {
+  return missingCount === 0 ? "100%" : `−${missingCount}`;
 }
 
-function CheckGlyph({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M3 8.5L6.5 12L13 4.5"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+/** Cards tilt in a repeating cycle so a grid never looks mechanical. */
+const TILTS = ["-1.2deg", "0.8deg", "-0.6deg"] as const;
+
+export function cardTilt(index: number): string {
+  return TILTS[index % TILTS.length] ?? "0deg";
 }
 
 /* ------------------------------------------------------------------ */
-/* Buttons, chips, badges                                              */
+/* Buttons                                                             */
 /* ------------------------------------------------------------------ */
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "ghost" | "danger";
-  size?: "sm" | "md";
+  variant?: "primary" | "outline" | "quiet" | "go";
 };
 
+/**
+ * `primary` is the sky pill with a peach offset shadow. `go` is the same
+ * shape but white — used for secondary actions on the recipe page.
+ */
 export function Button({
-  variant = "secondary",
-  size = "md",
+  variant = "outline",
   className,
+  style,
   ...rest
 }: ButtonProps) {
   const base =
-    "inline-flex items-center justify-center gap-2 rounded-full font-medium transition-all disabled:opacity-40 disabled:pointer-events-none active:scale-[0.97] whitespace-nowrap";
-  const sizes = {
-    sm: "text-sm px-3 py-1.5",
-    md: "text-sm px-4 py-2.5",
-  };
-  const variants = {
-    primary: "text-white shadow-sm hover:brightness-110",
-    secondary: "hover:brightness-[0.97]",
-    ghost: "hover:bg-[var(--bg-sunken)]",
-    danger: "hover:brightness-105",
-  };
+    "inline-flex items-center justify-center gap-2 rounded-full font-bold whitespace-nowrap msc-press disabled:pointer-events-none";
+
   const styles: Record<string, React.CSSProperties> = {
-    primary: { background: "var(--accent)", color: "var(--bg)" },
-    secondary: {
-      background: "var(--bg-raised)",
-      border: "1px solid var(--border-strong)",
-      color: "var(--text)",
+    primary: {
+      fontSize: 14,
+      padding: "11px 20px",
+      background: "var(--sky)",
+      border: "2px solid var(--sky-deep)",
+      color: "var(--ink)",
+      boxShadow: "3px 3px 0 var(--peach)",
     },
-    ghost: { color: "var(--text-muted)" },
-    danger: {
-      background: "transparent",
-      border: "1px solid var(--border-strong)",
-      color: "var(--stretch)",
+    outline: {
+      fontSize: 14,
+      padding: "11px 20px",
+      background: "var(--surface)",
+      border: "2px solid var(--tan-border)",
+      color: "var(--ink)",
+      boxShadow: "3px 3px 0 var(--tan-shadow)",
+    },
+    go: {
+      fontSize: 14,
+      padding: "10px 18px",
+      background: "var(--surface)",
+      border: "2px solid var(--tan-border)",
+      color: "var(--ink)",
+      boxShadow: "3px 3px 0 var(--tan-shadow)",
+    },
+    quiet: {
+      fontSize: 13,
+      fontWeight: 600,
+      padding: "4px 2px",
+      color: "var(--ink-45)",
     },
   };
 
   return (
     <button
-      className={cx(base, sizes[size], variants[variant], className)}
-      style={styles[variant]}
+      className={cx(base, variant !== "quiet" && "msc-hover-sky", variant === "quiet" && "msc-hover-orange", className)}
+      style={{ ...styles[variant], ...style }}
       {...rest}
     />
   );
 }
 
-export function Badge({
+/** The pill link used for empty-state calls to action. */
+export function PillLinkStyle(
+  variant: "primary" | "outline" = "primary",
+): React.CSSProperties {
+  return variant === "primary"
+    ? {
+        fontSize: 14,
+        fontWeight: 700,
+        padding: "11px 20px",
+        background: "var(--sky)",
+        border: "2px solid var(--sky-deep)",
+        color: "var(--ink)",
+        boxShadow: "3px 3px 0 var(--peach)",
+        borderRadius: 999,
+      }
+    : {
+        fontSize: 14,
+        fontWeight: 700,
+        padding: "11px 20px",
+        background: "var(--surface)",
+        border: "2px solid var(--tan-border)",
+        color: "var(--ink)",
+        boxShadow: "3px 3px 0 var(--tan-shadow)",
+        borderRadius: 999,
+      };
+}
+
+/* ------------------------------------------------------------------ */
+/* Text atoms                                                          */
+/* ------------------------------------------------------------------ */
+
+/** The small all-caps label above a group: SPEEDRUN IT, EATING RULES, SORT. */
+export function Eyebrow({
   children,
-  color,
-  bg,
   className,
 }: {
   children: React.ReactNode;
-  color?: string;
-  bg?: string;
   className?: string;
 }) {
   return (
     <span
-      className={cx(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
-        className,
-      )}
+      className={cx("shrink-0", className)}
       style={{
-        color: color ?? "var(--text-muted)",
-        background: bg ?? "var(--bg-sunken)",
+        fontSize: 12,
+        fontWeight: 800,
+        letterSpacing: "0.1em",
+        color: "var(--ink-45)",
       }}
     >
       {children}
@@ -202,12 +196,73 @@ export function Badge({
   );
 }
 
-export function StatusBadge({ status }: { status: MatchStatus }) {
-  const meta = STATUS_META[status];
+/**
+ * Page headline. Sorbet's pattern is `the <word>.` with the middle word in
+ * sky-deep — rendered via `<em>` with the italics removed.
+ */
+export function Headline({
+  before,
+  accent,
+  after,
+  size = "page",
+}: {
+  before?: string;
+  accent: string;
+  after?: string;
+  size?: "page" | "hero";
+}) {
   return (
-    <Badge color={meta.color} bg={meta.bg}>
-      {meta.label}
-    </Badge>
+    <h1
+      style={{
+        margin: 0,
+        fontWeight: 800,
+        fontSize:
+          size === "hero"
+            ? "clamp(44px, 7vw, 76px)"
+            : "clamp(38px, 5.5vw, 60px)",
+        lineHeight: 0.95,
+        letterSpacing: "-0.03em",
+        color: "var(--ink)",
+      }}
+    >
+      {before}
+      <em style={{ fontStyle: "normal", color: "var(--sky-deep)" }}>{accent}</em>
+      {after}
+    </h1>
+  );
+}
+
+/** The rounded count pill next to a section heading. */
+export function CountPill({
+  children,
+  color,
+  bg,
+}: {
+  children: React.ReactNode;
+  color: string;
+  bg: string;
+}) {
+  return (
+    <span
+      style={{
+        fontWeight: 800,
+        fontSize: 13,
+        borderRadius: 999,
+        padding: "2px 10px",
+        color,
+        background: bg,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+export function SectionSubtitle({ children }: { children: React.ReactNode }) {
+  return (
+    <span style={{ fontSize: 13, fontWeight: 500, color: "var(--ink-50)" }}>
+      {children}
+    </span>
   );
 }
 
@@ -215,110 +270,106 @@ export function StatusBadge({ status }: { status: MatchStatus }) {
 /* Empty states & skeletons                                            */
 /* ------------------------------------------------------------------ */
 
-export function EmptyState({
-  icon,
+export function EmptyPanel({
+  glyph,
   title,
   children,
   action,
+  bodyWidth = "40ch",
 }: {
-  icon?: React.ReactNode;
+  glyph: string;
   title: string;
   children?: React.ReactNode;
   action?: React.ReactNode;
+  bodyWidth?: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-      {icon && (
-        <div
-          className="mb-4 grid h-14 w-14 place-items-center rounded-2xl"
-          style={{ background: "var(--bg-sunken)", color: "var(--text-faint)" }}
-        >
-          {icon}
-        </div>
-      )}
-      <h3 className="font-display text-xl" style={{ color: "var(--text)" }}>
+    <div
+      className="flex flex-col items-center justify-center text-center"
+      style={{
+        marginTop: 28,
+        padding: "56px 24px",
+        border: "2px dashed var(--tan-dashed)",
+        borderRadius: 24,
+      }}
+    >
+      <span style={{ fontSize: 40 }} aria-hidden>
+        {glyph}
+      </span>
+      <h3
+        style={{
+          margin: "14px 0 0",
+          fontWeight: 800,
+          fontSize: 26,
+          letterSpacing: "-0.02em",
+          color: "var(--ink)",
+        }}
+      >
         {title}
       </h3>
       {children && (
         <p
-          className="mt-2 max-w-sm text-sm leading-relaxed"
-          style={{ color: "var(--text-muted)" }}
+          style={{
+            margin: "8px 0 0",
+            maxWidth: bodyWidth,
+            fontSize: 14,
+            lineHeight: 1.55,
+            color: "var(--ink-60)",
+          }}
         >
           {children}
         </p>
       )}
-      {action && <div className="mt-6">{action}</div>}
+      {action && <div style={{ marginTop: 18 }}>{action}</div>}
     </div>
   );
 }
 
-export function SkeletonCard() {
+export function CardSkeleton({ count = 3 }: { count?: number }) {
   return (
-    <div className="surface overflow-hidden rounded-2xl">
-      <div className="skeleton h-28 w-full" />
-      <div className="space-y-2 p-4">
-        <div className="skeleton h-4 w-3/4 rounded" />
-        <div className="skeleton h-3 w-full rounded" />
-        <div className="skeleton h-3 w-2/3 rounded" />
-      </div>
-    </div>
-  );
-}
-
-export function SkeletonGrid({ count = 6 }: { count?: number }) {
-  return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div
+      style={{
+        marginTop: 28,
+        display: "grid",
+        gap: 18,
+        gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+      }}
+    >
       {Array.from({ length: count }, (_, idx) => (
-        <SkeletonCard key={idx} />
+        <div
+          key={idx}
+          className="msc-skeleton"
+          style={{ height: 150, borderRadius: 18 }}
+        />
+      ))}
+    </div>
+  );
+}
+
+export function RowSkeleton({ count = 3 }: { count?: number }) {
+  return (
+    <div
+      style={{
+        marginTop: 24,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      {Array.from({ length: count }, (_, idx) => (
+        <div
+          key={idx}
+          className="msc-skeleton"
+          style={{ height: 52, borderRadius: 14 }}
+        />
       ))}
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/* Recipe artwork                                                      */
+/* Cuisine glyphs                                                      */
 /* ------------------------------------------------------------------ */
-
-/**
- * Deterministic gradient + glyph, keyed to the recipe slug.
- *
- * There's no licensed photography here, and a broken or mismatched image looks
- * far worse than none. This gives every recipe a stable, distinct identity that
- * reads as intentional.
- */
-/**
- * Explicit gradient pairs rather than computed hues.
- *
- * Generated hues wander into bright greens and magentas, which read as
- * anything but food. These are all warm or earthy — terracotta, saffron,
- * olive, paprika, wine — kept muted so the white title text sits comfortably
- * on top and a grid of them doesn't shout.
- */
-const ARTWORK_PAIRS: [string, string][] = [
-  ["#c2704a", "#8f3f26"], // terracotta → rust
-  ["#d99a3f", "#a8651a"], // amber → ochre
-  ["#8f9455", "#5c6135"], // olive → moss
-  ["#c15b4b", "#8a2f28"], // paprika → brick
-  ["#b8874b", "#7d5225"], // bronze → cocoa
-  ["#7d9070", "#4c5f42"], // sage → forest
-  ["#a4576b", "#6d2f42"], // rosehip → wine
-  ["#cf8b52", "#96522a"], // apricot → burnt orange
-  ["#96794f", "#615029"], // wheat → bronze
-  ["#5f8280", "#37544f"], // sea green → deep teal
-  ["#b5654e", "#7a3324"], // clay → oxblood
-  ["#c9a24d", "#8f6d1e"], // mustard → old gold
-];
-
-export function recipeArtwork(slug: string): { gradient: string } {
-  let hash = 0;
-  for (let idx = 0; idx < slug.length; idx += 1) {
-    hash = (hash * 31 + slug.charCodeAt(idx)) % 100000;
-  }
-  const pair = ARTWORK_PAIRS[hash % ARTWORK_PAIRS.length] ?? ARTWORK_PAIRS[0]!;
-  return {
-    gradient: `linear-gradient(135deg, ${pair[0]} 0%, ${pair[1]} 100%)`,
-  };
-}
 
 const CUISINE_EMOJI: Record<string, string> = {
   Italian: "🍝",

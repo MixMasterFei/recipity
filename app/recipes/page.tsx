@@ -4,19 +4,24 @@ import { useMemo, useState } from "react";
 import { RECIPES, TAGS } from "@/data/recipes";
 import { matchPantry, totalTime } from "@/lib/match";
 import { useStore, useToday } from "@/lib/store";
-import { RecipeCard } from "@/components/recipe/RecipeCard";
+import { Main } from "@/components/shell/AppShell";
+import { CardGrid, RecipeCard } from "@/components/recipe/RecipeCard";
 import {
   BrowseControls,
-  DietFilterBar,
   type BrowseSort,
 } from "@/components/filters/DietFilterBar";
-import { EmptyState, SkeletonGrid } from "@/components/ui/primitives";
+import {
+  CardSkeleton,
+  EmptyPanel,
+  Headline,
+} from "@/components/ui/primitives";
 
 /**
- * Browse the whole library.
+ * The whole cookbook.
  *
- * Still scored against the pantry — even when you're browsing rather than
- * asking "what can I cook", knowing how close each recipe is stays useful.
+ * Still scored against the fridge — even when browsing rather than asking
+ * "what can I cook", knowing how close each one is stays useful. Cards here
+ * use the plain voice, not the Kitchen's cheeky one.
  */
 export default function BrowsePage() {
   const { state, hydrated } = useStore();
@@ -62,55 +67,55 @@ export default function BrowsePage() {
   }, [allRecipes, state.pantry, state.staples, state.diet, today, sort, tag, query]);
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:py-10">
-      <header className="mb-5">
-        <h1
-          className="font-display text-3xl leading-tight sm:text-4xl"
-          style={{ color: "var(--text)" }}
-        >
-          All recipes
-        </h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>
-          {allRecipes.length}{" "}
-          {allRecipes.length === 1 ? "recipe" : "recipes"}, each scored against
-          what&apos;s in your kitchen.
-        </p>
-      </header>
+    <Main>
+      <Headline before="the whole " accent="cookbook" after="." />
+      <p
+        style={{
+          margin: "12px 0 0",
+          fontSize: 15,
+          fontWeight: 500,
+          color: "var(--ink-60)",
+        }}
+      >
+        {allRecipes.length} recipes, every one scored against your fridge.
+      </p>
 
-      <div className="mb-6 space-y-4">
-        <BrowseControls
-          sort={sort}
-          onSort={setSort}
-          tags={TAGS}
-          activeTag={tag}
-          onTag={setTag}
-          query={query}
-          onQuery={setQuery}
-        />
-        <DietFilterBar label="Diet" />
-      </div>
+      <BrowseControls
+        sort={sort}
+        onSort={setSort}
+        tags={TAGS}
+        activeTag={tag}
+        onTag={setTag}
+        query={query}
+        onQuery={setQuery}
+      />
 
       {!hydrated ? (
-        <SkeletonGrid count={9} />
+        <CardSkeleton count={6} />
       ) : results.length === 0 ? (
-        <EmptyState
-          icon={<span className="text-2xl">🥄</span>}
-          title="Nothing matches"
-        >
-          Try clearing the search, the tag filter, or a dietary restriction.
-        </EmptyState>
+        <EmptyPanel glyph="🥄" title="nothing matches.">
+          try clearing the search, the mood, or an eating rule.
+        </EmptyPanel>
       ) : (
         <>
-          <p className="mb-4 text-sm" style={{ color: "var(--text-faint)" }}>
-            Showing {results.length} recipe{results.length === 1 ? "" : "s"}
+          <p
+            style={{
+              margin: "24px 0 0",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "var(--ink-45)",
+            }}
+          >
+            showing {results.length}{" "}
+            {results.length === 1 ? "recipe" : "recipes"}
           </p>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {results.map((result) => (
-              <RecipeCard key={result.recipe.id} result={result} />
+          <CardGrid marginTop={14}>
+            {results.map((result, idx) => (
+              <RecipeCard key={result.recipe.id} result={result} index={idx} />
             ))}
-          </div>
+          </CardGrid>
         </>
       )}
-    </div>
+    </Main>
   );
 }
