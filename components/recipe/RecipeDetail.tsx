@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { ingredientName } from "@/data/ingredients";
 import { DIET_LABELS, recipeDietTags } from "@/lib/diet";
 import { scoreRecipe, totalTime } from "@/lib/match";
+import { coverageRatio, formatAmount, isEnough, toAmount } from "@/lib/quantity";
 import { useStore, useToday } from "@/lib/store";
 import { Main } from "@/components/shell/AppShell";
 import {
@@ -15,6 +16,7 @@ import {
 import type {
   IngredientMatch,
   MatchResult,
+  PantryItem,
   Recipe,
   RecipeIngredient,
 } from "@/lib/types";
@@ -47,6 +49,12 @@ export function RecipeDetail({ recipe }: { recipe: Recipe }) {
     for (const m of result.matches) map.set(m.ref, m);
     return map;
   }, [result.matches]);
+
+  // What you actually hold, so each line can say whether it's enough.
+  const heldByRef = useMemo(
+    () => new Map(state.pantry.map((p) => [p.ingredientId, p])),
+    [state.pantry],
+  );
 
   const style = STATUS_STYLE[result.status];
   const saved = state.favorites.includes(recipe.id);
@@ -347,6 +355,7 @@ export function RecipeDetail({ recipe }: { recipe: Recipe }) {
                 key={`${ri.ref}-${idx}`}
                 ri={ri}
                 match={matchByRef.get(ri.ref)}
+                held={heldByRef.get(ri.ref)}
                 scale={scale}
               />
             ))}
@@ -588,15 +597,32 @@ const MARKERS = {
 function IngredientLine({
   ri,
   match,
+  held,
   scale,
 }: {
   ri: RecipeIngredient;
   match: IngredientMatch | undefined;
+  held: PantryItem | undefined;
   scale: number;
 }) {
   const kind = match?.kind ?? "missing";
   const marker = MARKERS[kind];
   const name = ingredientName(ri.ref);
+
+  // Amounts only speak for a direct hit — a group or substitute means you're
+  // cooking with something else, so the recipe's amount doesn't describe what
+  // you hold. Scale the requirement to the chosen serving count first.
+  const ratio =
+    kind === "have"
+      ? coverageRatio(
+          toAmount(held?.quantity, held?.unit),
+          toAmount(
+            ri.quantity === undefined ? undefined : ri.quantity * scale,
+            ri.unit,
+          ),
+        )
+      : null;
+  const shortHere = ratio !== null && !isEnough(ratio);
 
   return (
     <li
@@ -661,6 +687,15 @@ function IngredientLine({
             style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-40)" }}
           >
             staple. you have this.
+          </span>
+        )}
+        {shortHere && (
+          <span
+            className="block"
+            style={{ fontSize: 12, fontWeight: 600, color: "var(--sky-deep)" }}
+          >
+            you have {formatAmount(held?.quantity, held?.unit)} — about{" "}
+            {Math.round((ratio ?? 0) * 100)}% of this
           </span>
         )}
       </span>

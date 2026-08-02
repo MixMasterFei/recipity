@@ -10,6 +10,7 @@ import type {
   RecipeIngredient,
 } from "@/lib/types";
 import { recipeSatisfiesDiet } from "@/lib/diet";
+import { coverageRatio, isEnough, toAmount } from "@/lib/quantity";
 import type { DietPrefs } from "@/lib/types";
 
 /**
@@ -40,6 +41,14 @@ const SCORE = {
   substitutionPenalty: 3,
   /** Each shopping trip item hurts. */
   missingPenalty: 12,
+  /**
+   * Being short on an amount is a nudge, not a verdict.
+   *
+   * Deliberately tiny next to `missingPenalty`: having half the pasta is
+   * nothing like having no pasta, and halving a recipe is normal cooking. This
+   * only breaks ties between otherwise equal recipes.
+   */
+  shortPenalty: 2,
 } as const;
 
 export interface MatchOptions {
@@ -184,12 +193,51 @@ export function scoreRecipe(
     }
   }
 
+  /**
+   * How far the amounts you entered actually stretch.
+   *
+   * Only ingredients you genuinely hold, where both sides carry a comparable
+   * amount, have anything to say. Everything else is silent — an unmeasured
+   * fridge behaves exactly as it did before amounts existed, which is the
+   * whole point: entering amounts must stay optional.
+   */
+  const pantryById = new Map(pantry.map((p) => [p.ingredientId, p]));
+  const short: IngredientId[] = [];
+  let tightestRatio = Infinity;
+
+  for (const ri of requiredOf(recipe)) {
+    const match = matches.find((m) => m.ref === ri.ref);
+    // Only direct hits: a group or substitute match means you're cooking with
+    // something else, so the recipe's amount doesn't describe what you hold.
+    if (match?.kind !== "have") continue;
+
+    const held = pantryById.get(ri.ref);
+    if (!held) continue;
+
+    const ratio = coverageRatio(
+      toAmount(held.quantity, held.unit),
+      toAmount(ri.quantity, ri.unit),
+    );
+    if (ratio === null) continue;
+
+    tightestRatio = Math.min(tightestRatio, ratio);
+    if (!isEnough(ratio)) short.push(ri.ref);
+  }
+
+  // The scarcest ingredient sets the portions. Always at least one serving —
+  // running low means a smaller plate, never an impossible dish.
+  const servingsPossible =
+    tightestRatio === Infinity || tightestRatio >= 1
+      ? recipe.servings
+      : Math.max(1, Math.floor(recipe.servings * tightestRatio));
+
   const score =
     coverage * SCORE.coveragePerPoint +
     rescueBonus +
     uses.size * SCORE.perPantryItemUsed -
     subCount * SCORE.substitutionPenalty -
-    missing.length * SCORE.missingPenalty;
+    missing.length * SCORE.missingPenalty -
+    short.length * SCORE.shortPenalty;
 
   return {
     recipe,
@@ -200,6 +248,8 @@ export function scoreRecipe(
     missing,
     uses: [...uses],
     rescues,
+    servingsPossible,
+    short,
   };
 }
 

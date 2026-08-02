@@ -15,10 +15,13 @@ device — see [Accounts](#accounts-optional).
 
 - **Kitchen** — add ingredients with a keyboard-first typeahead over ~470
   canonical ingredients. Aliases work: type "green onions" or "courgette" and it
-  resolves them. Optionally tag anything with a use-by date.
+  resolves them. Optionally tag anything with a use-by date and how much you
+  have.
 - **Live matching** — 139 recipes re-ranked on every change, split into
   *ready rn* / *so close* / *worth a shop*.
 - **Spin the pan** — can't decide? It picks for you, slot-machine style.
+- **Portions sized to you** — tell it you've got 50g of pasta left and a recipe
+  for four says "makes 1, not 2". See [Amounts](#amounts-and-why-most-apps-get-this-wrong).
 - **Shopping list** — one tap adds a recipe's missing ingredients, deduped
   across recipes and grouped by supermarket aisle. Tick things off and move them
   straight into your kitchen.
@@ -194,6 +197,47 @@ straight back; without it, every round trip would duplicate history.
 Trade-off worth knowing: a device offline for a long time loses its staple and
 diet edits to the newer side. That's the price of not resurrecting deleted
 staples.
+
+## Amounts, and why most apps get this wrong
+
+Every competitor either ignores quantities or drowns in them. SuperCook is
+purely binary — no amounts at all — and gets criticised because portions are
+never sized to you. Cooklist tracks quantities on paper and users report it
+doesn't work. Plan to Eat shipped a pantry and then *removed* it, reasoning
+that a digital inventory and a real kitchen can never stay synchronised.
+
+They're right about the system they built. Modelling a **running balance** is
+unwinnable: every unobserved event — you cook without opening the app, your
+partner cooks, you eyeball half a packet — pushes the number further from
+truth, the error only accumulates, and wrong inventory is worse than none
+because it lies to you confidently.
+
+So this doesn't model a balance. Three rules, each enforced by a test:
+
+1. **Amounts are optional and always will be.** No amount entered, or units
+   that can't be compared, and the engine says nothing at all. An unmeasured
+   fridge behaves exactly as it did before the feature existed.
+2. **An amount never blocks a recipe.** Half the pasta is not no pasta. Running
+   low scales the portions and applies a rank nudge one-sixth the size of a
+   missing ingredient — it never demotes a recipe out of *ready rn*.
+3. **Nothing is decremented silently.** `markCooked` removes an ingredient
+   outright rather than adjusting a hidden number, so a stale amount is one
+   wrong value you can fix in a tap, not a drifting balance you can't see.
+
+### What it will and won't compare
+
+`lib/quantity.ts` only compares within a unit family — mass with mass, volume
+with volume, cans with cans. It will happily tell you 1kg covers 500g, or that
+a cup is 16 tablespoons.
+
+It refuses to convert *across* families, because a cup of flour weighs 120g and
+a cup of sugar weighs 200g. Guessing that produces confident nonsense, so an
+incomparable pair returns "no opinion" and the UI stays quiet. Vague amounts —
+a pinch, a handful, to taste — are never compared either. Nobody measures a
+pinch.
+
+Ratios within 5% count as enough: someone with 500g for a 520g recipe should
+not be told they're short.
 
 ## Notes
 

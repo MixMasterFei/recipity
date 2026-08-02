@@ -225,6 +225,16 @@ export interface MatchResult {
   uses: IngredientId[];
   /** Pantry items nearing expiry that this recipe would rescue. */
   rescues: IngredientId[];
+  /**
+   * How many servings the amounts in your fridge actually stretch to.
+   *
+   * Equals `recipe.servings` unless you've entered amounts *and* one of them
+   * falls short. Never zero — running low means smaller portions, not an
+   * impossible dish.
+   */
+  servingsPossible: number;
+  /** Ingredients you have, but less of than the recipe asks for. */
+  short: IngredientId[];
 }
 
 /** A rule for making do without something. */

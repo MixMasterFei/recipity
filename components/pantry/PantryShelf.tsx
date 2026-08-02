@@ -5,8 +5,9 @@ import { AISLE_LABEL, AISLE_ORDER, getIngredient } from "@/data/ingredients";
 import { daysUntil } from "@/lib/match";
 import { useStore, useToday } from "@/lib/store";
 import { expiryLabel } from "@/lib/voice";
+import { UNIT_CHOICES, formatAmount } from "@/lib/quantity";
 import { Eyebrow, cx } from "@/components/ui/primitives";
-import type { Aisle, IngredientId, PantryItem } from "@/lib/types";
+import type { Aisle, IngredientId, PantryItem, Unit } from "@/lib/types";
 
 /**
  * The fridge.
@@ -108,9 +109,18 @@ function PantryChip({
 
   const days = item.expiresAt ? daysUntil(item.expiresAt, today) : undefined;
   const urgency = expiryStyle(days);
+  const amount = formatAmount(item.quantity, item.unit);
 
   return (
-    <div className="msc-pop relative">
+    // The msc-pop animation carries a transform with `both` fill, which leaves
+    // this element as a permanent stacking context. That traps the popover's
+    // own z-index inside it, so later siblings that are themselves transformed
+    // — the leverage banner — would paint on top. Lift the whole chip while
+    // its editor is open.
+    <div
+      className="msc-pop relative"
+      style={{ zIndex: editing ? 40 : undefined }}
+    >
       <div
         className="flex items-center"
         style={{
@@ -127,6 +137,11 @@ function PantryChip({
       >
         {ing.emoji && <span aria-hidden>{ing.emoji}</span>}
         <button onClick={onEdit}>{ing.name.toLowerCase()}</button>
+        {amount && (
+          <span style={{ fontSize: 11, fontWeight: 800, opacity: 0.7 }}>
+            {amount}
+          </span>
+        )}
         {days !== undefined && (
           <span style={{ fontSize: 11, fontWeight: 800, opacity: 0.85 }}>
             {expiryLabel(days)}
@@ -142,29 +157,45 @@ function PantryChip({
         </button>
       </div>
 
-      {editing && (
-        <ExpiryPopover
-          item={item}
-          onClose={onClose}
-          onSet={(iso) => {
-            actions.updatePantryItem(item.ingredientId, { expiresAt: iso });
-            onClose();
-          }}
-        />
-      )}
+      {editing && <ItemPopover item={item} onClose={onClose} />}
     </div>
   );
 }
 
-function ExpiryPopover({
+/**
+ * The chip editor: how much, and use it by when.
+ *
+ * Both fields are optional and stay that way. The app is at its best when you
+ * can dump fifteen ingredients in fifteen seconds, so nothing here is ever
+ * required or prompted for — it's here for the times you know you're running
+ * low and want the portions advice.
+ */
+function ItemPopover({
   item,
   onClose,
-  onSet,
 }: {
   item: PantryItem;
   onClose: () => void;
-  onSet: (iso: string | undefined) => void;
 }) {
+  const { actions } = useStore();
+  const [quantity, setQuantity] = useState(
+    item.quantity !== undefined ? String(item.quantity) : "",
+  );
+  const [unit, setUnit] = useState<Unit>(item.unit ?? "g");
+
+  const commitAmount = (rawQuantity: string, nextUnit: Unit) => {
+    const parsed = Number.parseFloat(rawQuantity);
+    const valid = Number.isFinite(parsed) && parsed > 0;
+    actions.updatePantryItem(item.ingredientId, {
+      quantity: valid ? parsed : undefined,
+      unit: valid ? nextUnit : undefined,
+    });
+  };
+
+  const setExpiry = (iso: string | undefined) => {
+    actions.updatePantryItem(item.ingredientId, { expiresAt: iso });
+  };
+
   const presets = [
     { label: "today", days: 0 },
     { label: "2 days", days: 2 },
@@ -180,7 +211,7 @@ function ExpiryPopover({
         top: "100%",
         zIndex: 30,
         marginTop: 8,
-        width: 230,
+        width: 244,
         borderRadius: 16,
         padding: 14,
         background: "var(--surface)",
@@ -188,6 +219,93 @@ function ExpiryPopover({
         boxShadow: "6px 6px 0 var(--tan-shadow)",
       }}
     >
+      {/* ---- how much ---- */}
+      <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--ink-60)" }}>
+        how much? optional — it sizes the portions.
+      </p>
+      <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+        <input
+          type="number"
+          min="0"
+          step="any"
+          inputMode="decimal"
+          value={quantity}
+          placeholder="any"
+          aria-label={`Amount of ${getIngredient(item.ingredientId)?.name ?? "ingredient"}`}
+          onChange={(e) => {
+            setQuantity(e.target.value);
+            commitAmount(e.target.value, unit);
+          }}
+          style={{
+            minWidth: 0,
+            flex: 1,
+            boxSizing: "border-box",
+            borderRadius: 8,
+            padding: "6px 8px",
+            fontSize: 12,
+            fontWeight: 600,
+            background: "var(--ground)",
+            border: "1.5px solid var(--tan-border)",
+            color: "var(--ink)",
+          }}
+        />
+        <select
+          value={unit}
+          aria-label="Unit"
+          onChange={(e) => {
+            const next = e.target.value as Unit;
+            setUnit(next);
+            commitAmount(quantity, next);
+          }}
+          style={{
+            borderRadius: 8,
+            padding: "6px 8px",
+            fontSize: 12,
+            fontWeight: 600,
+            background: "var(--ground)",
+            border: "1.5px solid var(--tan-border)",
+            color: "var(--ink)",
+          }}
+        >
+          {UNIT_CHOICES.map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.units.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </div>
+      {item.quantity !== undefined && (
+        <button
+          onClick={() => {
+            setQuantity("");
+            actions.updatePantryItem(item.ingredientId, {
+              quantity: undefined,
+              unit: undefined,
+            });
+          }}
+          style={{
+            marginTop: 6,
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--ink-45)",
+          }}
+        >
+          forget the amount
+        </button>
+      )}
+
+      <div
+        style={{
+          margin: "12px 0",
+          borderTop: "1px dashed var(--tan-skeleton)",
+        }}
+      />
+
+      {/* ---- use by ---- */}
       <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--ink-60)" }}>
         use it by when? rescue dinners rank higher.
       </p>
@@ -205,7 +323,7 @@ function ExpiryPopover({
             onClick={() => {
               const date = new Date();
               date.setDate(date.getDate() + p.days);
-              onSet(date.toISOString());
+              setExpiry(date.toISOString());
             }}
             className="msc-hover-peach"
             style={{
@@ -224,8 +342,9 @@ function ExpiryPopover({
       <input
         type="date"
         defaultValue={item.expiresAt?.slice(0, 10)}
+        aria-label="Use-by date"
         onChange={(e) =>
-          onSet(e.target.value ? new Date(e.target.value).toISOString() : undefined)
+          setExpiry(e.target.value ? new Date(e.target.value).toISOString() : undefined)
         }
         style={{
           marginTop: 8,
@@ -241,7 +360,7 @@ function ExpiryPopover({
       />
       {item.expiresAt && (
         <button
-          onClick={() => onSet(undefined)}
+          onClick={() => setExpiry(undefined)}
           style={{
             marginTop: 8,
             width: "100%",

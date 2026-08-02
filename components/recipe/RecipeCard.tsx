@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { useStore } from "@/lib/store";
-import { kitchenSubLine, plainSubLine, rescueLabel } from "@/lib/voice";
+import {
+  kitchenSubLine,
+  plainSubLine,
+  portionNote,
+  rescueLabel,
+} from "@/lib/voice";
 import {
   CountPill,
   SectionSubtitle,
@@ -44,6 +49,9 @@ export function RecipeCard({
       ? kitchenSubLine(result, index)
       : plainSubLine(result);
   const rescue = showRescue && result.rescues.length > 0;
+  // Only appears when the user entered amounts and one falls short. Silent
+  // otherwise, which is the overwhelming majority of the time.
+  const portions = portionNote(result);
 
   return (
     <article
@@ -109,23 +117,43 @@ export function RecipeCard({
           {subLine}
         </p>
 
-        {rescue && (
-          <span
-            className="inline-block"
-            style={{
-              marginTop: 8,
-              fontSize: 11,
-              fontWeight: 800,
-              letterSpacing: "0.06em",
-              color: "var(--amber)",
-              background: "var(--ground)",
-              border: "1.5px solid var(--peach)",
-              borderRadius: 999,
-              padding: "2px 8px",
-            }}
-          >
-            ⏰ {rescueLabel(result)}
-          </span>
+        {(rescue || portions) && (
+          <div className="flex flex-wrap" style={{ gap: 6, marginTop: 8 }}>
+            {rescue && (
+              <span
+                className="inline-block"
+                style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: "0.06em",
+                  color: "var(--amber)",
+                  background: "var(--ground)",
+                  border: "1.5px solid var(--peach)",
+                  borderRadius: 999,
+                  padding: "2px 8px",
+                }}
+              >
+                ⏰ {rescueLabel(result)}
+              </span>
+            )}
+            {portions && (
+              <span
+                className="inline-block"
+                style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: "0.06em",
+                  color: "var(--sky-deep)",
+                  background: "var(--ground)",
+                  border: "1.5px solid var(--sky)",
+                  borderRadius: 999,
+                  padding: "2px 8px",
+                }}
+              >
+                🍽 {portions}
+              </span>
+            )}
+          </div>
         )}
       </Link>
 

@@ -71,6 +71,19 @@ export function plainSubLine(result: MatchResult): string {
   return `${totalMinutes(result)} min · ${plainNeed(result)}`;
 }
 
+/**
+ * "makes 2, not 4" — shown only when the amounts you entered fall short.
+ *
+ * Returns null far more often than not, and that's correct: an unmeasured
+ * fridge should say nothing at all.
+ */
+export function portionNote(result: MatchResult): string | null {
+  const full = result.recipe.servings;
+  const possible = result.servingsPossible;
+  if (possible >= full) return null;
+  return `makes ${possible}, not ${full}`;
+}
+
 /** `⏰ uses the spinach` — the emoji is rendered separately by the card. */
 export function rescueLabel(result: MatchResult): string {
   const first = result.rescues[0];
