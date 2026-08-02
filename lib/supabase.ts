@@ -12,16 +12,27 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
  * is false, `getSupabase` returns null, and the app behaves exactly as it did
  * before accounts existed — same pattern as the AI invent route.
  *
- * On the anon key being public: it is meant to be. It ships in the browser
- * bundle by design, and row-level security — not secrecy — is what stops one
- * user reading another's fridge. See supabase/migrations/.
+ * On the key being public: it is meant to be. It ships in the browser bundle by
+ * design, and row-level security — not secrecy — is what stops one user reading
+ * another's fridge. See supabase/migrations/.
  */
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+/**
+ * Either key name works.
+ *
+ * Supabase now issues `sb_publishable_...` keys, which rotate independently of
+ * the project's JWT secret and are what new projects should use. The older
+ * `anon` JWT still works and is what the Vercel integration injects, so accept
+ * both and prefer the modern one.
+ */
+const PUBLISHABLE_KEY =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 export function isAuthConfigured(): boolean {
-  return Boolean(URL && ANON_KEY);
+  return Boolean(URL && PUBLISHABLE_KEY);
 }
 
 let client: SupabaseClient | null = null;
@@ -31,7 +42,7 @@ export function getSupabase(): SupabaseClient | null {
   if (!isAuthConfigured()) return null;
   if (typeof window === "undefined") return null;
 
-  client ??= createClient(URL!, ANON_KEY!, {
+  client ??= createClient(URL!, PUBLISHABLE_KEY!, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,

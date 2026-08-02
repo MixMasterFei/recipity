@@ -145,24 +145,36 @@ other, and signing out leaves this device's data exactly where it is.
 
 1. Create a Supabase project (the free tier is plenty).
 2. Run `supabase/migrations/0001_kitchen_state.sql` against it — SQL Editor,
-   or `supabase db push` if you use the CLI.
+   or `supabase db push` if you use the CLI. Then check
+   Advisors → Security comes up clean.
 3. **Google:** Google Cloud Console → Credentials → OAuth client ID (Web).
    Set the authorized redirect URI to
    `https://<project-ref>.supabase.co/auth/v1/callback`, then paste the client
    ID and secret into Supabase → Authentication → Providers → Google.
 4. In Supabase → Authentication → URL Configuration, set your site URL and add
    `https://<your-domain>/auth/callback` to the redirect allowlist.
-5. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+5. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
    (see `.env.example`) and redeploy.
 
-Magic-link sign-in needs no extra setup — it uses Supabase's built-in email.
+Magic-link sign-in needs no extra setup — it uses Supabase's built-in email,
+which is rate-limited on the free tier (a handful per hour). Wire up a custom
+SMTP provider in Supabase → Authentication → Emails before real use.
 
-### On the anon key being public
+Either key name works: `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (the modern
+`sb_publishable_...` form, preferred) or `NEXT_PUBLIC_SUPABASE_ANON_KEY` (the
+legacy JWT, which is what Vercel's Supabase integration injects).
+
+### On the key being public
 
 It is `NEXT_PUBLIC_` on purpose and ships in the browser bundle, which is what
 that key is designed for. **Row-level security is the actual security
 boundary** — the policies in the migration are what stop one signed-in user
 reading another's fridge. Don't disable them.
+
+The policies are scoped `to authenticated`, so a signed-out client has no
+policy at all and cannot read the table even to count rows. They also wrap the
+uid lookup as `(select auth.uid())`, which lets Postgres evaluate it once per
+statement rather than once per row.
 
 ### How the merge works
 
