@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -10,11 +11,11 @@ import {
 } from "react";
 import { DEFAULT_STAPLES } from "@/data/ingredients";
 import { useAuth } from "@/lib/auth";
-import { EMPTY_DIET } from "@/lib/diet";
-import { isEmptyState, mergeState } from "@/lib/merge";
+import { mergeState, sameState } from "@/lib/merge";
 import { addMissingToList, removeRecipeFromList } from "@/lib/shopping";
+import { initialState, migrate, stampChanges } from "@/lib/state";
 import { getSupabase } from "@/lib/supabase";
-import { pullRemote, pushRemote } from "@/lib/sync";
+import { syncOnce } from "@/lib/sync";
 import type {
   DietPrefs,
   IngredientId,
@@ -31,76 +32,33 @@ import type {
  * All persistent user state.
  *
  * localStorage is the source of truth and always works. When someone is signed
- * in, a second leg mirrors the same state to Supabase — pulled and merged on
- * sign-in, pushed on a slower debounce thereafter. Signed out, or with accounts
- * unconfigured, none of that code runs and this behaves exactly as it did
- * before accounts existed.
+ * in, a second leg keeps the same state on Supabase: every round pulls the
+ * account's copy, merges it with this device's, and pushes the result. Signed
+ * out, or with accounts unconfigured, none of that code runs and this behaves
+ * exactly as it did before accounts existed.
  *
  * The one genuinely tricky part is hydration. Reading localStorage during
  * render makes the server and client produce different HTML, and React tears
  * the tree down. So state starts empty, loads in an effect, and `hydrated`
  * tells the UI when it's safe to render real content. Every consumer gets that
  * flag from here rather than reimplementing the dance.
+ *
+ * What a valid state looks like — its initial value, upgrading old copies,
+ * stamping changes — lives in `lib/state.ts`, where it can be tested.
  */
 
 // Deliberately still `recipity.*` after the rebrand — renaming would orphan
 // the data of anyone already using the app.
 const STORAGE_KEY = "recipity.state.v1";
-const SCHEMA_VERSION = 2;
 
 /** localStorage write debounce. */
 const LOCAL_SAVE_MS = 250;
-/** Remote write debounce — slower, because it's a network round trip. */
+/** How long after an edit to talk to the server — it's a network round trip. */
 const REMOTE_SAVE_MS = 1200;
-
-function initialState(): RecipityState {
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    updatedAt: new Date().toISOString(),
-    pantry: [],
-    staples: [...DEFAULT_STAPLES],
-    favorites: [],
-    history: [],
-    shoppingList: [],
-    diet: EMPTY_DIET,
-    invented: [],
-  };
-}
-
-/**
- * Bring a persisted blob up to the current schema.
- *
- * Written defensively: users have real data in here, and a thrown error would
- * mean silently wiping someone's pantry.
- */
-function migrate(raw: unknown): RecipityState {
-  const base = initialState();
-  if (!raw || typeof raw !== "object") return base;
-
-  const data = raw as Partial<RecipityState>;
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    // v1 blobs predate sync and have no timestamp. Treating them as ancient
-    // rather than "now" is the safe default: on a first sign-in the server's
-    // preferences win, instead of a stale device clobbering them.
-    updatedAt:
-      typeof data.updatedAt === "string"
-        ? data.updatedAt
-        : new Date(0).toISOString(),
-    pantry: Array.isArray(data.pantry) ? data.pantry : base.pantry,
-    staples: Array.isArray(data.staples) ? data.staples : base.staples,
-    favorites: Array.isArray(data.favorites) ? data.favorites : base.favorites,
-    history: Array.isArray(data.history) ? data.history : base.history,
-    shoppingList: Array.isArray(data.shoppingList)
-      ? data.shoppingList
-      : base.shoppingList,
-    diet:
-      data.diet && Array.isArray(data.diet.restrictions)
-        ? { restrictions: data.diet.restrictions, avoid: data.diet.avoid ?? [] }
-        : base.diet,
-    invented: Array.isArray(data.invented) ? data.invented : base.invented,
-  };
-}
+/** Don't re-check the server on every tab switch. */
+const RECHECK_MIN_MS = 15_000;
+/** Waits between retries after a failed round, then the last one repeats. */
+const RETRY_MS = [5_000, 15_000, 60_000];
 
 export interface StoreActions {
   addPantryItem(
@@ -155,10 +113,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const userId = user?.id ?? null;
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("off");
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
-  const remoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Which user id we've already pulled+merged for. Guards against the merge
-  // re-running on every token refresh, which would be wasted round trips.
-  const mergedFor = useRef<string | null>(null);
+
+  // The latest state, for code that runs outside a render (the sync round).
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  /**
+   * Sync bookkeeping. One mutable record rather than a handful of refs, so
+   * the pieces that must change together visibly do.
+   */
+  const sync = useRef({
+    /** Bumped whenever the signed-in user changes; stale rounds check it. */
+    session: 0,
+    running: false,
+    /** A round was asked for while one was already in flight. */
+    again: false,
+    timer: null as ReturnType<typeof setTimeout> | null,
+    /** Consecutive failed rounds, for the retry backoff. */
+    failures: 0,
+    /** Local edits made, and how many of them the server has seen. */
+    edits: 0,
+    syncedEdits: 0,
+    /** Whether this session has completed a round yet. */
+    settled: false,
+    lastOkAt: 0,
+  });
 
   // Load once, after mount, so server and client agree on the first render.
   useEffect(() => {
@@ -189,99 +170,154 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
   }, [state, hydrated]);
 
+  // Timers outlive the render that set them, so they call through a ref to
+  // reach the current `runSync` rather than the one they were created with.
+  const runSyncRef = useRef<() => void>(() => {});
+
+  /** Ask for a round after `delay`, replacing any round already waiting. */
+  const requestSync = useCallback((delay: number) => {
+    const s = sync.current;
+    if (s.timer) clearTimeout(s.timer);
+    s.timer = setTimeout(() => runSyncRef.current(), delay);
+  }, []);
+
   /**
-   * Sign-in: pull the account's copy, merge this device into it, adopt the
-   * result. This is the "your fridge came with you" moment — see lib/merge.ts
-   * for why collections union but preferences don't.
+   * Run one round with the server, or note that another is wanted if one is
+   * already running.
+   *
+   * Every round is pull, merge, push — see `syncOnce`. The merged result
+   * replaces local state, which is how another device's changes arrive here.
+   */
+  const runSync = useCallback(() => {
+    const client = getSupabase();
+    if (!client || !userId) return;
+
+    const s = sync.current;
+    if (s.running) {
+      s.again = true;
+      return;
+    }
+    s.running = true;
+    s.again = false;
+    const session = s.session;
+
+    if (!s.settled) setSyncStatus("merging");
+    else if (s.edits !== s.syncedEdits) setSyncStatus("saving");
+
+    // How many edits the snapshot handed to the merge contains. Anything
+    // made after it isn't on the server yet and needs another round.
+    let editsSeen = s.edits;
+
+    void syncOnce(client, userId, () => {
+      editsSeen = s.edits;
+      return stateRef.current;
+    }).then((outcome) => {
+      // Signed out or switched account while the request was in flight: this
+      // result belongs to someone else's session.
+      if (sync.current.session !== session) return;
+      s.running = false;
+
+      if (outcome.merged) {
+        const { merged, basis } = outcome;
+        setState((current) => {
+          // Untouched since the merge was worked out: take the result as is.
+          // Otherwise fold it into what the user has done in the meantime.
+          const next = current === basis ? merged : mergeState(current, merged);
+          return sameState(next, current) ? current : next;
+        });
+      }
+
+      if (outcome.error) {
+        setSyncStatus("error");
+        const wait =
+          RETRY_MS[Math.min(s.failures, RETRY_MS.length - 1)] ?? 60_000;
+        s.failures += 1;
+        requestSync(wait);
+        return;
+      }
+
+      s.failures = 0;
+      s.settled = true;
+      s.syncedEdits = editsSeen;
+      s.lastOkAt = Date.now();
+      setSyncStatus("synced");
+      setLastSyncedAt(new Date().toISOString());
+
+      if (s.again || s.edits !== editsSeen) requestSync(REMOTE_SAVE_MS);
+    });
+  }, [userId, requestSync]);
+
+  useEffect(() => {
+    runSyncRef.current = runSync;
+  }, [runSync]);
+
+  /**
+   * Start and stop syncing as people sign in and out.
+   *
+   * Signing in runs a round straight away — the "your fridge came with you"
+   * moment. Signing out deliberately leaves local data alone: wiping it would
+   * be a nasty surprise for anyone who signs straight back in.
    */
   useEffect(() => {
-    if (!hydrated) return;
+    const s = sync.current;
+    s.session += 1;
+    s.running = false;
+    s.again = false;
+    s.failures = 0;
+    s.settled = false;
+    s.lastOkAt = 0;
+    // Nothing on this device is known to be on the new account yet.
+    s.syncedEdits = -1;
+    if (s.timer) clearTimeout(s.timer);
+    s.timer = null;
 
-    if (!userId) {
-      // Signing out deliberately leaves local data alone. Wiping it would be a
-      // nasty surprise for anyone who signs straight back in.
-      mergedFor.current = null;
+    if (!hydrated || !userId || !getSupabase()) {
       setSyncStatus("off");
       return;
     }
 
-    if (mergedFor.current === userId) return;
-    mergedFor.current = userId;
+    requestSync(0);
 
-    const client = getSupabase();
-    if (!client) return;
-
-    let cancelled = false;
-    setSyncStatus("merging");
-
-    (async () => {
-      const { state: remote, error } = await pullRemote(client, userId);
-      if (cancelled) return;
-
-      if (error) {
-        setSyncStatus("error");
-        return;
-      }
-
-      // Merge against the freshest local state rather than the value captured
-      // when this effect started, in case the user kept typing during the pull.
-      setState((local) => {
-        const merged = remote ? mergeState(local, migrate(remote)) : local;
-        void pushRemote(client, userId, merged).then((res) => {
-          if (cancelled) return;
-          if (res.error) {
-            setSyncStatus("error");
-          } else {
-            setSyncStatus("synced");
-            setLastSyncedAt(new Date().toISOString());
-          }
-        });
-        return merged;
-      });
-    })();
+    // Pick up what other devices did when this one comes back into view.
+    const recheck = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - sync.current.lastOkAt < RECHECK_MIN_MS) return;
+      requestSync(0);
+    };
+    document.addEventListener("visibilitychange", recheck);
+    window.addEventListener("focus", recheck);
+    window.addEventListener("online", recheck);
 
     return () => {
-      cancelled = true;
+      document.removeEventListener("visibilitychange", recheck);
+      window.removeEventListener("focus", recheck);
+      window.removeEventListener("online", recheck);
+      const current = sync.current;
+      current.session += 1;
+      if (current.timer) clearTimeout(current.timer);
+      current.timer = null;
     };
-  }, [userId, hydrated]);
+  }, [userId, hydrated, requestSync]);
 
-  /** Ongoing pushes while signed in, on a slower debounce than localStorage. */
+  // `actions` is created once, so it reaches the latest of these through refs.
+  const userIdRef = useRef(userId);
+  const requestSyncRef = useRef(requestSync);
   useEffect(() => {
-    if (!hydrated || !userId) return;
-    // Don't race the initial merge, and don't bother writing an empty fridge.
-    if (syncStatus === "merging") return;
-    if (isEmptyState(state)) return;
-
-    const client = getSupabase();
-    if (!client) return;
-
-    if (remoteTimer.current) clearTimeout(remoteTimer.current);
-    remoteTimer.current = setTimeout(() => {
-      setSyncStatus("saving");
-      void pushRemote(client, userId, state).then((res) => {
-        if (res.error) {
-          setSyncStatus("error");
-        } else {
-          setSyncStatus("synced");
-          setLastSyncedAt(new Date().toISOString());
-        }
-      });
-    }, REMOTE_SAVE_MS);
-
-    return () => {
-      if (remoteTimer.current) clearTimeout(remoteTimer.current);
-    };
-    // `syncStatus` is deliberately absent from the deps: including it would
-    // retrigger this effect from inside its own setState calls and loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, userId, hydrated]);
+    userIdRef.current = userId;
+    requestSyncRef.current = requestSync;
+  }, [userId, requestSync]);
 
   const actions = useMemo<StoreActions>(() => {
-    // Every mutation goes through here, so stamping the clock once covers all
-    // of them. `updatedAt` is what decides which side's staples and diet win
-    // during a merge, so a missed stamp would silently lose a preference edit.
-    const update = (fn: (s: RecipityState) => RecipityState) =>
-      setState((s) => ({ ...fn(s), updatedAt: new Date().toISOString() }));
+    // Every mutation goes through here. `stampChanges` compares before and
+    // after and records what was added, edited and removed, which is what
+    // lets another device tell a deletion from something it simply never
+    // had. Doing it here, once, means no action can forget to.
+    const update = (fn: (s: RecipityState) => RecipityState) => {
+      setState((s) => stampChanges(s, fn(s), new Date().toISOString()));
+      sync.current.edits += 1;
+      // A no-op while signed out: there is nobody to sync with.
+      if (userIdRef.current) requestSyncRef.current(REMOTE_SAVE_MS);
+    };
 
     return {
       addPantryItem(ingredientId, opts) {

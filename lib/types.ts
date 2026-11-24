@@ -142,6 +142,12 @@ export interface PantryItem {
   addedAt: string;
   /** ISO date string; drives the "use this up" ranking bonus. */
   expiresAt?: string;
+  /**
+   * ISO time of the last add or edit, used by sync to tell an edit from a
+   * stale copy. Absent on items saved before sync kept stamps — `addedAt`
+   * stands in for it.
+   */
+  updatedAt?: string;
 }
 
 export interface ShoppingItem {
@@ -150,6 +156,8 @@ export interface ShoppingItem {
   forRecipes: RecipeId[];
   checked: boolean;
   addedAt: string;
+  /** ISO time of the last change; see `PantryItem.updatedAt`. */
+  updatedAt?: string;
 }
 
 export interface CookEvent {
@@ -166,15 +174,44 @@ export interface DietPrefs {
   avoid: IngredientId[];
 }
 
+/** ISO timestamps keyed by ingredient or recipe id. */
+export type StampMap = Record<string, string>;
+
+/**
+ * Sync bookkeeping.
+ *
+ * Two devices can only agree on what was *deleted* if deletions are recorded:
+ * a missing entry is otherwise indistinguishable from one the other device
+ * never had, and merging would bring it straight back. So every removal leaves
+ * a dated marker here, and every member of a plain id-set (favourites,
+ * staples, diet) records when it was added. The later of the two wins.
+ *
+ * See `lib/merge.ts` for how these are read and `lib/state.ts` for how they
+ * are written.
+ */
+export interface SyncMeta {
+  /** When each member of an id-set was last added. */
+  added: {
+    favorites: StampMap;
+    staples: StampMap;
+    restrictions: StampMap;
+    avoid: StampMap;
+  };
+  /** When a key was last removed from each collection. */
+  removed: {
+    pantry: StampMap;
+    shoppingList: StampMap;
+    invented: StampMap;
+    favorites: StampMap;
+    staples: StampMap;
+    restrictions: StampMap;
+    avoid: StampMap;
+  };
+}
+
 export interface RecipityState {
   schemaVersion: number;
-  /**
-   * ISO timestamp of the last local change.
-   *
-   * Only used by sync: `staples` and `diet` are curated by *removal*, so a
-   * union would resurrect things the user deliberately unticked. Those fields
-   * take the newer side wholesale instead, and this is how we tell which.
-   */
+  /** ISO timestamp of the last local change. */
   updatedAt: string;
   pantry: PantryItem[];
   /** Ingredients assumed always on hand; excluded from match maths. */
@@ -185,6 +222,8 @@ export interface RecipityState {
   diet: DietPrefs;
   /** Recipes invented by Claude, kept so they survive a refresh. */
   invented: Recipe[];
+  /** Add and removal stamps that let two devices merge without guessing. */
+  sync: SyncMeta;
 }
 
 /* ------------------------------------------------------------------ */
@@ -209,6 +248,12 @@ export interface IngredientMatch {
   satisfiedBy?: IngredientId[];
   /** Human-readable substitution instruction, e.g. "1 cup milk + 1 tbsp lemon". */
   substitutionNote?: string;
+  /**
+   * True when the active eating rules forbid this ingredient outright, so
+   * owning it would not help. Only ever set on optional ingredients — a
+   * required one would have filtered the whole recipe out.
+   */
+  ruledOut?: boolean;
 }
 
 export type MatchStatus = "ready" | "almost" | "stretch";
