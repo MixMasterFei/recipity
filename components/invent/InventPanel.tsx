@@ -52,6 +52,7 @@ export function InventPanel() {
         body: JSON.stringify({
           pantryIds: state.pantry.map((p) => p.ingredientId),
           restrictions: state.diet.restrictions,
+          avoid: state.diet.avoid,
           mood: mood.trim() || undefined,
         }),
       });
@@ -116,6 +117,7 @@ export function InventPanel() {
 
       <input
         value={mood}
+        maxLength={200}
         onChange={(e) => setMood(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !busy) invent();

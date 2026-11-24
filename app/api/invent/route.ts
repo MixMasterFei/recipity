@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
-import { getIngredient, ingredientName } from "@/data/ingredients";
-import { resolveIngredient } from "@/lib/normalize";
-import { DIET_LABELS } from "@/lib/diet";
-import type { DietKey, Recipe, RecipeIngredient, Unit } from "@/lib/types";
+import {
+  INVENT_LIMITS,
+  VALID_UNITS,
+  buildInventPrompt,
+  checkInvented,
+  parseInventRequest,
+  toRecipe,
+} from "@/lib/invent";
+import { createRateLimiter } from "@/lib/rate-limit";
 
 /**
  * Invent a recipe from exactly what the user has.
  *
- * Claude returns a structured recipe via a forced tool call, and every
+ * Claude returns a structured recipe through a tool call, and every
  * ingredient name it produces is put back through `resolveIngredient` so the
  * result speaks the same canonical vocabulary as the bundled library. That's
  * what lets an invented recipe participate in matching, the shopping list and
@@ -15,6 +20,19 @@ import type { DietKey, Recipe, RecipeIngredient, Unit } from "@/lib/types";
  *
  * With no ANTHROPIC_API_KEY set this route reports itself disabled and the UI
  * hides the feature. Nothing else in the app depends on it.
+ *
+ * This is the only route that spends money, and it needs no account, so it is
+ * guarded in layers — each cheap, none sufficient alone:
+ *
+ *   1. Browsers on other sites are refused (origin check).
+ *   2. The body is size-capped and narrowed to catalogue ids (`lib/invent.ts`),
+ *      so a request can't be made arbitrarily expensive.
+ *   3. Requests are rate-limited per client and overall.
+ *   4. `max_tokens` bounds what any single call can cost.
+ *
+ * The rate limits are per server instance — see `lib/rate-limit.ts`. Before
+ * enabling this somewhere public, add the hosting platform's own rate-limit
+ * rule on `/api/invent` as well.
  */
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5";
@@ -22,13 +40,35 @@ const API_URL = "https://api.anthropic.com/v1/messages";
 
 /** Long enough for a full recipe, short enough to stay inside Vercel limits. */
 export const maxDuration = 60;
+/** Give up on the model slightly before the platform gives up on us. */
+const UPSTREAM_TIMEOUT_MS = 55_000;
 
-const VALID_UNITS: Unit[] = [
-  "g", "kg", "ml", "l", "tsp", "tbsp", "cup", "piece", "clove",
-  "slice", "pinch", "handful", "can", "bunch", "to taste",
-];
+/**
+ * Room for the recipe plus any thinking the model does first, which counts
+ * against the same budget. Checked via `stop_reason`, so running out produces
+ * a clean "try again" rather than half a recipe.
+ */
+const MAX_TOKENS = 8000;
 
-/** Tool schema Claude must fill in. Mirrors the `Recipe` type. */
+function positiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/** Per client, per hour. Inventing dinner a handful of times is plenty. */
+const perClient = createRateLimiter({
+  limit: positiveInt(process.env.INVENT_PER_HOUR, 8),
+  windowMs: 60 * 60 * 1000,
+});
+
+/** Everyone together, per day: the ceiling on what one instance can spend. */
+const overall = createRateLimiter({
+  limit: positiveInt(process.env.INVENT_PER_DAY, 300),
+  windowMs: 24 * 60 * 60 * 1000,
+  maxKeys: 1,
+});
+
+/** Tool schema Claude fills in. Mirrors the `Recipe` type. */
 const RECIPE_TOOL = {
   name: "publish_recipe",
   description:
@@ -103,67 +143,119 @@ Rules:
 - Build the recipe around the ingredients they actually have. Use as many as make sense together — but do not force incompatible things into one dish.
 - You may require at most TWO ingredients they do not have, and only if they are common (an onion, a lemon, stock). Prefer requiring none.
 - Assume basic seasoning (salt, pepper, oil, water) is always available.
-- Respect every dietary restriction absolutely. A restriction is a hard constraint, not a preference.
+- Respect every dietary restriction and every "never use" absolutely. These are hard constraints, not preferences.
+- Name each ingredient plainly and separately: "chicken thigh", not "boneless chicken thighs or breasts".
 - Write real quantities and real timings. "Cook until done" is useless.
 - Method steps should each be one action, in order, with the sensory cue that tells you it worked ("until the edges are lacy and dark").
 - Write plainly. No adjective stacking, no "delicious", no "elevate", no "burst of flavour".
 
-Call publish_recipe exactly once.`;
-
-interface InventRequest {
-  pantryIds?: string[];
-  restrictions?: DietKey[];
-  mood?: string;
-}
+Answer only by calling publish_recipe, exactly once. Write nothing before or after the call.`;
 
 export async function GET() {
   // The client asks this on mount to decide whether to show the feature.
   return NextResponse.json({ enabled: Boolean(process.env.ANTHROPIC_API_KEY) });
 }
 
+function fail(error: string, status: number, headers?: HeadersInit) {
+  return NextResponse.json({ error }, { status, headers });
+}
+
+/**
+ * Refuse browsers calling from another site.
+ *
+ * Browsers always say where a request came from, so a page on someone else's
+ * domain can't spend this key through its visitors. A script outside a
+ * browser sends no such headers and passes — that is what the rate limits are
+ * for.
+ */
+function fromThisSite(request: Request): boolean {
+  const site = request.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin" && site !== "none") return false;
+
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    return false;
+  }
+  const hosts = [
+    request.headers.get("host"),
+    request.headers.get("x-forwarded-host"),
+  ].filter(Boolean);
+  return hosts.includes(originHost);
+}
+
+/**
+ * Best available identity for rate limiting.
+ *
+ * `x-forwarded-for` is set by the hosting platform's proxy; behind one that
+ * doesn't overwrite it a caller could vary it to dodge the per-client limit,
+ * which is why the overall limit exists and doesn't depend on it.
+ */
+function clientKey(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for");
+  return (
+    forwarded?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip")?.trim() ||
+    "unknown"
+  );
+}
+
 export async function POST(request: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return NextResponse.json(
-      {
-        error:
-          "Recipe invention is switched off. Add an ANTHROPIC_API_KEY environment variable and redeploy to enable it.",
-      },
-      { status: 503 },
+    return fail(
+      "Recipe invention is switched off. Add an ANTHROPIC_API_KEY environment variable and redeploy to enable it.",
+      503,
     );
   }
 
-  let body: InventRequest;
+  if (!fromThisSite(request)) {
+    return fail("This endpoint only answers the app itself.", 403);
+  }
+
+  // Read the body as text first so its size can be checked before parsing.
+  let bodyText: string;
   try {
-    body = await request.json();
+    bodyText = await request.text();
   } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    return fail("Invalid request body.", 400);
+  }
+  if (bodyText.length > INVENT_LIMITS.maxBodyChars) {
+    return fail("That request is too large.", 413);
   }
 
-  const pantryIds = (body.pantryIds ?? []).filter((id) => getIngredient(id));
-  if (pantryIds.length < 2) {
-    return NextResponse.json(
-      { error: "Add at least two ingredients to your kitchen first." },
-      { status: 400 },
+  let body: unknown;
+  try {
+    body = JSON.parse(bodyText);
+  } catch {
+    return fail("Invalid request body.", 400);
+  }
+
+  const parsed = parseInventRequest(body);
+  if (!parsed.ok) return fail(parsed.error, 400);
+  const input = parsed.input;
+
+  // Only requests that would actually reach the model count against a limit.
+  const mine = perClient.take(clientKey(request));
+  if (!mine.ok) {
+    return fail(
+      "That's a lot of inventing. Give it a rest and try again later.",
+      429,
+      { "retry-after": String(mine.retryAfterSec) },
     );
   }
-
-  const restrictions = (body.restrictions ?? []).filter(
-    (r): r is DietKey => r in DIET_LABELS,
-  );
-
-  const prompt = [
-    `In my kitchen: ${pantryIds.map(ingredientName).join(", ")}.`,
-    restrictions.length > 0
-      ? `Dietary restrictions (hard constraints): ${restrictions
-          .map((r) => DIET_LABELS[r])
-          .join(", ")}.`
-      : null,
-    body.mood?.trim() ? `What I feel like: ${body.mood.trim()}` : null,
-    "Invent one recipe for me.",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const everyone = overall.take("all");
+  if (!everyone.ok) {
+    return fail(
+      "The kitchen is closed for today — too many inventions. Try again tomorrow.",
+      429,
+      { "retry-after": String(everyone.retryAfterSec) },
+    );
+  }
 
   try {
     const response = await fetch(API_URL, {
@@ -175,143 +267,66 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 2000,
+        max_tokens: MAX_TOKENS,
         system: SYSTEM_PROMPT,
         tools: [RECIPE_TOOL],
-        tool_choice: { type: "tool", name: RECIPE_TOOL.name },
-        messages: [{ role: "user", content: prompt }],
+        // `auto`, not a forced call: the current Sonnet and Opus models reject
+        // forced tool use outright, and the prompt asks for the call anyway.
+        // The price is that a call isn't guaranteed, so its absence is
+        // handled below as "try again".
+        tool_choice: { type: "auto" },
+        messages: [{ role: "user", content: buildInventPrompt(input) }],
       }),
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
 
     if (!response.ok) {
       const detail = await response.text();
       console.error("Anthropic API error", response.status, detail);
-      return NextResponse.json(
-        {
-          error:
-            response.status === 401
-              ? "The configured API key was rejected."
-              : "Couldn't reach the recipe model. Try again in a moment.",
-        },
-        { status: 502 },
+      return fail(
+        response.status === 401
+          ? "The configured API key was rejected."
+          : "Couldn't reach the recipe model. Try again in a moment.",
+        502,
       );
     }
 
     const payload = (await response.json()) as {
+      stop_reason?: string;
       content?: { type: string; name?: string; input?: unknown }[];
     };
+
+    if (payload.stop_reason === "refusal") {
+      return fail("The model declined that one. Try a different mood.", 422);
+    }
 
     const toolUse = payload.content?.find(
       (block) => block.type === "tool_use" && block.name === RECIPE_TOOL.name,
     );
 
-    if (!toolUse?.input) {
-      return NextResponse.json(
-        { error: "The model didn't return a usable recipe. Try again." },
-        { status: 502 },
-      );
+    // Out of tokens mid-call leaves a recipe that parses but stops halfway
+    // through the method, so a truncated answer is treated as no answer.
+    if (!toolUse?.input || payload.stop_reason === "max_tokens") {
+      return fail("The model didn't return a usable recipe. Try again.", 502);
     }
 
-    return NextResponse.json({ recipe: toRecipe(toolUse.input) });
+    const recipe = toRecipe(toolUse.input);
+    const problem = checkInvented(recipe, input);
+    if (problem) {
+      console.error("Invented recipe rejected", problem);
+      return fail(problem, 502);
+    }
+
+    return NextResponse.json({ recipe });
   } catch (error) {
     console.error("Invent route failed", error);
-    return NextResponse.json(
-      { error: "Something went wrong inventing that recipe." },
-      { status: 500 },
+    const timedOut =
+      error instanceof DOMException && error.name === "TimeoutError";
+    return fail(
+      timedOut
+        ? "The recipe model took too long. Try again."
+        : "Something went wrong inventing that recipe.",
+      timedOut ? 504 : 500,
     );
   }
-}
-
-interface RawIngredient {
-  name?: string;
-  quantity?: number;
-  unit?: string;
-  note?: string;
-  optional?: boolean;
-}
-
-interface RawRecipe {
-  title?: string;
-  description?: string;
-  cuisine?: string;
-  tags?: string[];
-  servings?: number;
-  prepMin?: number;
-  cookMin?: number;
-  difficulty?: string;
-  ingredients?: RawIngredient[];
-  steps?: string[];
-  tips?: string[];
-}
-
-/**
- * Map the model's output onto our `Recipe` type.
- *
- * The important step is resolving each free-text ingredient name back to a
- * canonical id. Anything unrecognised keeps its raw text as the ref — it still
- * displays correctly and simply counts as missing, which is the honest answer.
- */
-function toRecipe(input: unknown): Recipe {
-  const raw = input as RawRecipe;
-  const title = (raw.title ?? "Invented recipe").trim();
-
-  const ingredients: RecipeIngredient[] = (raw.ingredients ?? [])
-    .filter((entry) => entry.name?.trim())
-    .map((entry) => {
-      const resolved = resolveIngredient(entry.name ?? "");
-      return {
-        ref: resolved ?? (entry.name ?? "").trim().toLowerCase(),
-        quantity: typeof entry.quantity === "number" ? entry.quantity : undefined,
-        unit: VALID_UNITS.includes(entry.unit as Unit)
-          ? (entry.unit as Unit)
-          : undefined,
-        note: entry.note?.trim() || undefined,
-        optional: entry.optional === true,
-      };
-    });
-
-  const difficulty =
-    raw.difficulty === "medium" || raw.difficulty === "hard"
-      ? raw.difficulty
-      : "easy";
-
-  // Slug is time-stamped so re-inventing never collides with a saved recipe.
-  const slug = `invented-${slugify(title)}-${Date.now().toString(36)}`;
-
-  return {
-    id: slug,
-    slug,
-    title,
-    description: (raw.description ?? "").trim(),
-    cuisine: (raw.cuisine ?? "Invented").trim(),
-    tags: Array.isArray(raw.tags) ? raw.tags.slice(0, 6).map(String) : [],
-    servings: clamp(raw.servings, 1, 12, 2),
-    prepMin: clamp(raw.prepMin, 0, 240, 10),
-    cookMin: clamp(raw.cookMin, 0, 480, 20),
-    difficulty,
-    ingredients,
-    steps: (raw.steps ?? []).map((s) => String(s).trim()).filter(Boolean),
-    tips: (raw.tips ?? []).map((s) => String(s).trim()).filter(Boolean),
-    generated: true,
-  };
-}
-
-function clamp(
-  value: unknown,
-  min: number,
-  max: number,
-  fallback: number,
-): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-  return Math.min(max, Math.max(min, Math.round(value)));
-}
-
-function slugify(text: string): string {
-  return (
-    text
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 48) || "recipe"
-  );
 }
