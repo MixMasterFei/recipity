@@ -8,8 +8,8 @@ the ones you're two ingredients short of get their own band, and anything using
 food that's about to go off gets pushed up the list.
 
 **No account required.** Your fridge lives in this browser's localStorage and
-works entirely offline. Sign in only if you want it to follow you to another
-device — see [Accounts](#accounts-optional).
+never leaves it. Sign in only if you want it to follow you to another device —
+see [Accounts](#accounts-optional).
 
 ## What it does
 
@@ -123,6 +123,27 @@ mislabelled vegan, however the recipe data is edited later. A test enforces the
 same thing in the other direction: any recipe tagged `vegan` whose ingredients
 disagree fails the build.
 
+### Eating rules gate ingredients, not just recipes
+
+Two different questions hide in "is this dairy-free?", and the app answers both.
+
+*Can this recipe be cooked dairy-free?* A frittata asking for "any cheese" can,
+because vegan cheese is a cheese — so it stays in the list.
+
+*May this ingredient go in the pot?* The cheddar in your fridge may not. With a
+rule switched on, the engine only lets permitted ingredients count: as a direct
+hit, as a member of a group, as a sibling swap, as the input to a substitution,
+or as an assumed staple. So that frittata shows as *one short* (it needs a
+cheese you can eat), and peanut butter never stands in for tahini in a nut-free
+kitchen. `tests/diet.test.ts` checks this against every recipe in the library
+with a fridge holding the entire catalogue — the worst case, where a forbidden
+option is always within reach.
+
+Badges say how sure they are. *vegan* means vegan whatever you do; *can be
+vegan* means it depends on a choice — which milk you pick, or whether you add
+the optional parmesan. And a recipe that breaks your rules outright, reached by
+a direct link or an old favourite, opens with a warning naming the ingredient.
+
 ## Project layout
 
 ```
@@ -130,10 +151,12 @@ app/            routes — kitchen, browse, detail, list, saved, /api/invent
 components/     kitchen/ pantry/ recipe/ filters/ invent/ shell/ ui/
 lib/            types, match, normalize, diet, shopping, store, voice
                 expiry, quantity, rescue      (use-by dates and amounts)
-                merge, sync, auth, supabase   (accounts)
+                invent, rate-limit            (recipe invention, guarded)
+                state, stamps, merge, sync,
+                auth, supabase                (accounts)
 data/           ingredients, substitutions, recipes/
 supabase/       migrations/                   (schema + row-level security)
-tests/          engine, data-integrity and merge tests
+tests/          engine, diet, data-integrity, invention, merge and sync tests
 ```
 
 ## Enabling recipe invention
@@ -153,10 +176,37 @@ To turn it on:
 The key is read server-side only and is never exposed to the browser. The model
 defaults to `claude-sonnet-5` and can be overridden with `ANTHROPIC_MODEL`.
 
-Claude returns the recipe through a forced tool call matching the `Recipe` type,
-and every ingredient name it produces is run back through `lib/normalize.ts`.
+Claude returns the recipe through a tool call matching the `Recipe` type, and
+every ingredient name it produces is run back through `lib/normalize.ts`.
 That's what lets an invented recipe join matching, the shopping list and
-favourites like any bundled one.
+favourites like any bundled one. The call is requested in the prompt rather
+than forced, because the current Sonnet and Opus models reject forced tool
+use — so `ANTHROPIC_MODEL` can point at any of them.
+
+Names are matched on whole words, and a generic word becomes a group:
+"chopped nuts" is *any nut*, never something that merely contains the letters.
+When a name could be read two ways that disagree about what's safe to eat
+("cashew cream": nuts one way, dairy the other) it is left unresolved rather
+than guessed. An unresolved ingredient shows as written, counts as missing,
+and fails every eating rule.
+
+### Before switching it on in public
+
+This is the only route that spends money and it needs no account, so it is
+guarded in layers (`app/api/invent/route.ts`, `lib/invent.ts`):
+
+- browsers calling from another site are refused;
+- the request is size-capped and narrowed to catalogue ids, with the free-text
+  mood limited to 200 characters;
+- 8 inventions per client per hour and 300 a day overall
+  (`INVENT_PER_HOUR`, `INVENT_PER_DAY`);
+- `max_tokens` bounds what one call can cost, and a truncated, refused or
+  rule-breaking answer is discarded rather than saved.
+
+The rate limits are counted in memory, per server instance. On a serverless
+host that makes them a brake, not a guarantee — add the platform's own
+rate-limit rule on `/api/invent` (on Vercel: Firewall → custom rule) before
+relying on them.
 
 ## Design
 
@@ -220,24 +270,40 @@ policy at all and cannot read the table even to count rows. They also wrap the
 uid lookup as `(select auth.uid())`, which lets Postgres evaluate it once per
 statement rather than once per row.
 
-### How the merge works
+### How sync works
 
-`lib/merge.ts`, with its own tests, because getting this wrong either loses
-someone's work or resurrects things they deleted. Two rules, because the state
-holds two kinds of field:
+Every round is **pull, merge, push**: a device never writes to the account
+without first reading what is there and folding it in. Rounds run on sign-in,
+a moment after each change, and when a tab comes back into view; a failed
+round is retried, and nothing is written until a read has succeeded.
 
-- **Collections** (pantry, favourites, shopping list, history, invented) union
-  by key. Losing an entry loses real work.
-- **Preferences** (staples, diet) take the newer side wholesale. These are
-  curated by *removal* — untick salt and a union would put it straight back,
-  forever.
+`lib/merge.ts` does the folding, and has its own tests because getting it wrong
+either loses someone's work or resurrects things they deleted. One rule covers
+everything — pantry, shopping list, favourites, staples, diet:
 
-The merge is idempotent, which matters because sync pushes the merged result
-straight back; without it, every round trip would duplicate history.
+> an entry survives unless it was removed *after* it was last added or edited.
 
-Trade-off worth knowing: a device offline for a long time loses its staple and
-diet edits to the newer side. That's the price of not resurrecting deleted
-staples.
+That needs removals to be recorded, since a missing entry otherwise looks the
+same as one the other device never had. So each deletion leaves a dated marker
+and each addition or edit is stamped (`state.sync`, written in one place by
+`stampChanges` in `lib/state.ts`, which compares before and after so no action
+can forget). Delete the spinach on your laptop and it stays deleted when your
+phone, which still had it, next syncs. Buy more and add it back, and the newer
+add wins.
+
+Staples and the diet follow the same rule item by item. Unticking salt sticks;
+ticking *vegetarian* on one device cannot cost you the *nut-free* you set on
+another.
+
+The merge gives the same result whichever device runs it, order included —
+otherwise two devices would keep rewriting each other's copy. `tests/sync.test.ts`
+runs two simulated devices against a stand-in server to check that they
+settle.
+
+Known limits: two edits to the *same* item on two devices resolve to the later
+one, by each device's own clock. And signing in merges whatever is in this
+browser into the account, so on a shared computer one person's fridge can end
+up in another's account — sign-out does not clear local data, by design.
 
 ## Amounts, and why most apps get this wrong
 
