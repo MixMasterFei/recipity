@@ -425,7 +425,7 @@ const SAUCES: Spec[] = [
   v("hoisin", "Hoisin sauce", "condiments", "sauce", { diet: { glutenFree: false } }),
   v("sriracha", "Sriracha", "condiments", "sauce", { aliases: ["hot sauce", "chili sauce"] }),
   v("tabasco", "Tabasco", "condiments", "sauce", { aliases: ["hot pepper sauce"] }),
-  v("gochujang", "Gochujang", "condiments", "sauce", { aliases: ["korean chili paste"] }),
+  v("gochujang", "Gochujang", "condiments", "sauce", { aliases: ["korean chili paste"], diet: { glutenFree: false } }),
   v("miso", "Miso paste", "condiments", "sauce", { aliases: ["white miso", "red miso"] }),
   v("ketchup", "Ketchup", "condiments", "sauce", { aliases: ["tomato ketchup"] }),
   v("mustard", "Dijon mustard", "condiments", "sauce", { aliases: ["mustard", "wholegrain mustard", "english mustard"] }),
@@ -469,7 +469,7 @@ const BAKING: Spec[] = [
   v("cocoa", "Cocoa powder", "baking", "baking", { aliases: ["unsweetened cocoa"] }),
   v("dark-chocolate", "Dark chocolate", "baking", "baking", { aliases: ["chocolate", "chocolate chips", "semisweet chocolate"], emoji: "🍫" }),
   v("gelatin", "Gelatin", "baking", "baking", { aliases: ["gelatine"], diet: { vegan: false, vegetarian: false } }),
-  v("cornflakes", "Cornflakes", "pantry", "baking", { aliases: ["cereal"] }),
+  v("cornflakes", "Cornflakes", "pantry", "baking", { aliases: ["cereal"], diet: { glutenFree: false } }),
 ];
 
 const ALCOHOL: Spec[] = [
@@ -617,7 +617,7 @@ const EXTRAS: Spec[] = [
   v("ponzu", "Ponzu", "condiments", "sauce", { diet: { vegan: false, vegetarian: false, glutenFree: false } }),
   v("sambal", "Sambal oelek", "condiments", "sauce", { groups: ["chili"] }),
   v("xo-sauce", "XO sauce", "condiments", "sauce", { diet: { vegan: false, vegetarian: false } }),
-  v("doubanjiang", "Doubanjiang", "condiments", "sauce", { aliases: ["fermented bean paste"], groups: ["chili"] }),
+  v("doubanjiang", "Doubanjiang", "condiments", "sauce", { aliases: ["fermented bean paste"], groups: ["chili"], diet: { glutenFree: false } }),
   v("black-bean-sauce", "Black bean sauce", "condiments", "sauce", { diet: { glutenFree: false } }),
   v("tamarind", "Tamarind paste", "condiments", "sauce", {}),
   v("pomegranate-molasses", "Pomegranate molasses", "condiments", "sauce", {}),
@@ -714,7 +714,8 @@ export function getIngredient(id: IngredientId): Ingredient | undefined {
 /** Display name for an id, falling back to the raw id for unknown refs. */
 export function ingredientName(id: IngredientId): string {
   if (id.startsWith("group:")) {
-    const label = id.slice(6).replace(/-/g, " ");
+    // The catch-all cheese group is itself called "any-cheese".
+    const label = id.slice(6).replace(/-/g, " ").replace(/^any /, "");
     return `any ${label}`;
   }
   return INGREDIENT_BY_ID.get(id)?.name ?? id;

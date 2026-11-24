@@ -4,8 +4,9 @@ import type { Recipe, RecipeIngredient, Unit } from "@/lib/types";
  * Terse builders for recipe data.
  *
  * Recipe files are the bulk of this codebase, so they're written with these
- * helpers rather than full object literals. Everything stays typed, so a
- * misspelled ingredient id is a compile error rather than a silent non-match.
+ * helpers rather than full object literals. Everything stays typed, and a
+ * misspelled ingredient id fails `tests/data.test.ts` rather than silently never
+ * matching.
  */
 
 /** Required ingredient: `i("onion", 1)`, `i("flour", 200, "g", "sifted")`. */

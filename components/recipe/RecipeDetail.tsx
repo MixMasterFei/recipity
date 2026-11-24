@@ -3,8 +3,14 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ingredientName } from "@/data/ingredients";
-import { DIET_LABELS, recipeDietTags } from "@/lib/diet";
-import { scoreRecipe, totalTime } from "@/lib/match";
+import {
+  DIET_LABELS,
+  allowedGroupMembers,
+  dietIssues,
+  recipeDietBadges,
+  type DietIssue,
+} from "@/lib/diet";
+import { scoreOne, totalTime } from "@/lib/match";
 import { coverageRatio, formatAmount, isEnough, toAmount } from "@/lib/quantity";
 import { useStore, useToday } from "@/lib/store";
 import { Main } from "@/components/shell/AppShell";
@@ -14,6 +20,7 @@ import {
   cx,
 } from "@/components/ui/primitives";
 import type {
+  DietPrefs,
   IngredientMatch,
   MatchResult,
   PantryItem,
@@ -35,13 +42,23 @@ export function RecipeDetail({ recipe }: { recipe: Recipe }) {
   const [servings, setServings] = useState(recipe.servings);
   const [done, setDone] = useState<Set<number>>(new Set());
 
+  // Every way this recipe breaks the eating rules. Usually empty: the lists
+  // never show a recipe that does, so this only fires for a direct link or a
+  // favourite saved before the rules changed.
+  const issues = useMemo(
+    () => dietIssues(recipe, state.diet),
+    [recipe, state.diet],
+  );
+  const withinRules = issues.length === 0;
+
   const result = useMemo(
     () =>
-      scoreRecipe(recipe, state.pantry, {
+      scoreOne(recipe, state.pantry, {
         staples: state.staples,
+        diet: state.diet,
         now: today,
       }),
-    [recipe, state.pantry, state.staples, today],
+    [recipe, state.pantry, state.staples, state.diet, today],
   );
 
   const matchByRef = useMemo(() => {
@@ -59,7 +76,7 @@ export function RecipeDetail({ recipe }: { recipe: Recipe }) {
   const style = STATUS_STYLE[result.status];
   const saved = state.favorites.includes(recipe.id);
   const scale = servings / recipe.servings;
-  const dietTags = recipeDietTags(recipe);
+  const dietBadges = recipeDietBadges(recipe);
   const onList = new Set(state.shoppingList.map((i) => i.ingredientId));
   const allMissingOnList =
     result.missing.length > 0 && result.missing.every((id) => onList.has(id));
@@ -161,20 +178,30 @@ export function RecipeDetail({ recipe }: { recipe: Recipe }) {
           </p>
 
           <div className="flex flex-wrap" style={{ marginTop: 12, gap: 6 }}>
-            {dietTags.map((tag) => (
+            {dietBadges.map(({ key, certain }) => (
               <span
-                key={tag}
+                key={key}
+                title={
+                  certain
+                    ? undefined
+                    : "depends which ingredient you pick where the recipe says “any”"
+                }
                 style={{
                   fontSize: 12,
                   fontWeight: 700,
                   color: "var(--green-text)",
-                  background: "var(--green-pale)",
+                  // Solid when it holds whatever you cook it with; outlined
+                  // when it only holds if you pick the right "any …".
+                  background: certain ? "var(--green-pale)" : "transparent",
+                  border: certain
+                    ? "1.5px solid transparent"
+                    : "1.5px dashed var(--green-stroke)",
                   borderRadius: 999,
-                  padding: "3px 10px",
+                  padding: "2px 10px",
                   textTransform: "lowercase",
                 }}
               >
-                {DIET_LABELS[tag]}
+                {certain ? DIET_LABELS[key] : `can be ${DIET_LABELS[key]}`}
               </span>
             ))}
             {recipe.tags.map((tag) => (
@@ -233,6 +260,8 @@ export function RecipeDetail({ recipe }: { recipe: Recipe }) {
           </span>
         </div>
       </div>
+
+      {!withinRules && <RulesWarning issues={issues} />}
 
       {/* Actions */}
       <div className="flex flex-wrap" style={{ marginTop: 22, gap: 10 }}>
@@ -357,6 +386,7 @@ export function RecipeDetail({ recipe }: { recipe: Recipe }) {
                 match={matchByRef.get(ri.ref)}
                 held={heldByRef.get(ri.ref)}
                 scale={scale}
+                diet={withinRules ? state.diet : undefined}
               />
             ))}
           </ul>
@@ -527,6 +557,60 @@ export function RecipeDetail({ recipe }: { recipe: Recipe }) {
   );
 }
 
+/**
+ * Shown when a recipe breaks the eating rules — which only happens when
+ * someone reaches it directly, since the lists filter these out. Names the
+ * ingredient, because "not vegetarian" is less useful than "because of the
+ * bacon".
+ */
+function RulesWarning({ issues }: { issues: DietIssue[] }) {
+  // One line per rule, listing the ingredients that break it.
+  const byRule = new Map<DietIssue["rule"], DietIssue[]>();
+  for (const issue of issues) {
+    const list = byRule.get(issue.rule);
+    if (list) list.push(issue);
+    else byRule.set(issue.rule, [issue]);
+  }
+
+  return (
+    <div
+      role="note"
+      style={{
+        marginTop: 20,
+        borderRadius: 14,
+        padding: "12px 16px",
+        background: "var(--peach)",
+        border: "2px solid var(--orange)",
+        color: "var(--ink)",
+        fontSize: 14,
+        fontWeight: 600,
+        lineHeight: 1.5,
+      }}
+    >
+      <strong style={{ fontWeight: 800 }}>
+        heads up: this one breaks your eating rules.
+      </strong>
+      <ul style={{ margin: "6px 0 0", padding: 0, listStyle: "none" }}>
+        {[...byRule.entries()].map(([rule, list]) => {
+          const names = [...new Set(list.map((i) => ingredientName(i.ref)))]
+            .map((n) => n.toLowerCase())
+            .join(", ");
+          const unverified = list.every((i) => !i.known);
+          return (
+            <li key={rule}>
+              {rule === "avoid"
+                ? `you avoid ${names}`
+                : unverified
+                  ? `can't confirm it's ${DIET_LABELS[rule].toLowerCase()}: ${names} isn't in the catalogue`
+                  : `not ${DIET_LABELS[rule].toLowerCase()}: ${names}`}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function ActionButton({
   children,
   onClick,
@@ -586,6 +670,9 @@ function StepperButton({
   );
 }
 
+/** An ingredient the eating rules forbid: not something to go and buy. */
+const RULED_OUT_MARKER = { symbol: "✕", color: "var(--ink-40)" } as const;
+
 const MARKERS = {
   have: { symbol: "✓", color: "var(--green-text)" },
   group: { symbol: "✓", color: "var(--green-text)" },
@@ -594,20 +681,36 @@ const MARKERS = {
   missing: { symbol: "+", color: "var(--orange)" },
 } as const;
 
+/** How many permitted members of a group to name before trailing off. */
+const NAMED_OPTIONS = 4;
+
 function IngredientLine({
   ri,
   match,
   held,
   scale,
+  diet,
 }: {
   ri: RecipeIngredient;
   match: IngredientMatch | undefined;
   held: PantryItem | undefined;
   scale: number;
+  /** The eating rules, when this recipe is being scored within them. */
+  diet: DietPrefs | undefined;
 }) {
   const kind = match?.kind ?? "missing";
-  const marker = MARKERS[kind];
+  const ruledOut = match?.ruledOut === true;
+  const marker = ruledOut ? RULED_OUT_MARKER : MARKERS[kind];
   const name = ingredientName(ri.ref);
+
+  // "any milk" means something narrower to someone avoiding dairy. When the
+  // rules cut a group down and nothing in the fridge fills it, name what
+  // would, so the shopping trip buys the right one.
+  const options =
+    kind === "missing" && !ruledOut ? allowedGroupMembers(ri.ref, diet) : [];
+  const narrowed =
+    options.length > 0 &&
+    options.length < allowedGroupMembers(ri.ref, undefined).length;
 
   // Amounts only speak for a direct hit — a group or substitute means you're
   // cooking with something else, so the recipe's amount doesn't describe what
@@ -687,6 +790,27 @@ function IngredientLine({
             style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-40)" }}
           >
             staple. you have this.
+          </span>
+        )}
+        {ruledOut && (
+          <span
+            className="block"
+            style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-55)" }}
+          >
+            outside your eating rules. leave it out.
+          </span>
+        )}
+        {narrowed && (
+          <span
+            className="block"
+            style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-55)" }}
+          >
+            for your eating rules:{" "}
+            {options
+              .slice(0, NAMED_OPTIONS)
+              .map((id) => ingredientName(id).toLowerCase())
+              .join(", ")}
+            {options.length > NAMED_OPTIONS && ", …"}
           </span>
         )}
         {shortHere && (

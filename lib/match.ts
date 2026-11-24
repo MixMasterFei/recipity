@@ -9,7 +9,7 @@ import type {
   Recipe,
   RecipeIngredient,
 } from "@/lib/types";
-import { recipeSatisfiesDiet } from "@/lib/diet";
+import { dietGate, recipeSatisfiesDiet, refRuledOut } from "@/lib/diet";
 import { daysUntil } from "@/lib/expiry";
 import { coverageRatio, isEnough, toAmount } from "@/lib/quantity";
 import type { DietPrefs } from "@/lib/types";
@@ -55,6 +55,10 @@ const SCORE = {
 export interface MatchOptions {
   /** Assumed-on-hand ids, excluded from the coverage maths entirely. */
   staples?: IngredientId[];
+  /**
+   * Eating rules. In `matchPantry` these also filter the recipe list; in
+   * `scoreRecipe` they decide which of your ingredients are allowed to count.
+   */
   diet?: DietPrefs;
   /** Injectable clock so expiry logic is testable. */
   now?: Date;
@@ -142,15 +146,30 @@ export function scoreRecipe(
   options: MatchOptions = {},
 ): MatchResult {
   const now = options.now ?? new Date();
-  const staples = new Set(options.staples ?? []);
-  const owned = new Set(pantry.map((p) => p.ingredientId));
+
+  // The eating rules gate what is allowed to satisfy an ingredient, not just
+  // which recipes are listed. Without this a dairy-free recipe asking for "any
+  // milk" would be declared ready on the strength of the cow's milk in the
+  // fridge, and a nut-free one would accept peanut butter standing in for
+  // tahini. Filtering here covers direct hits, group members, sibling swaps,
+  // substitutions and staples in one place, because all of them read from
+  // these two sets.
+  const allowed = dietGate(options.diet);
+  const staples = new Set((options.staples ?? []).filter(allowed));
+  const owned = new Set(pantry.map((p) => p.ingredientId).filter(allowed));
   const expiryById = new Map(
     pantry.filter((p) => p.expiresAt).map((p) => [p.ingredientId, p.expiresAt!]),
   );
 
-  const matches = recipe.ingredients.map((ri) =>
-    classify(ri.ref, owned, staples),
-  );
+  const matches = recipe.ingredients.map((ri) => {
+    const match = classify(ri.ref, owned, staples);
+    // Say so when the rules forbid the ingredient itself, so the UI can read
+    // "leave it out" rather than "go and buy it".
+    if (match.kind === "missing" && refRuledOut(ri.ref, allowed)) {
+      match.ruledOut = true;
+    }
+    return match;
+  });
 
   const requiredRefs = new Set(requiredOf(recipe).map((i) => i.ref));
   const requiredMatches = matches.filter((m) => requiredRefs.has(m.ref));
@@ -245,6 +264,29 @@ export function scoreRecipe(
     servingsPossible,
     short,
   };
+}
+
+/**
+ * Score a recipe someone opened or saved directly, rather than one picked out
+ * of a filtered list.
+ *
+ * The eating rules are honoured whenever the recipe can be cooked within them,
+ * so "any milk" is still only satisfied by a milk they can have. When the
+ * recipe breaks the rules outright they are set aside instead: the person
+ * chose to look at it anyway, and scoring it as though they owned nothing
+ * would be noise. Callers surface `dietIssues` as the warning in that case.
+ */
+export function scoreOne(
+  recipe: Recipe,
+  pantry: PantryItem[],
+  options: MatchOptions = {},
+): MatchResult {
+  const diet = options.diet;
+  const applies = diet !== undefined && recipeSatisfiesDiet(recipe, diet);
+  return scoreRecipe(recipe, pantry, {
+    ...options,
+    diet: applies ? diet : undefined,
+  });
 }
 
 export function statusFor(missingCount: number): MatchStatus {

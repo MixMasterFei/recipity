@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import { RECIPE_BY_SLUG } from "@/data/recipes";
-import { scoreRecipe } from "@/lib/match";
+import { scoreOne } from "@/lib/match";
 import { useStore, useToday } from "@/lib/store";
 import { Main } from "@/components/shell/AppShell";
 import { CardGrid, RecipeCard } from "@/components/recipe/RecipeCard";
@@ -33,23 +33,25 @@ export default function SavedPage() {
         .map((id) => lookup.get(id))
         .filter((r): r is Recipe => Boolean(r))
         .map((recipe) =>
-          scoreRecipe(recipe, state.pantry, {
+          scoreOne(recipe, state.pantry, {
             staples: state.staples,
+            diet: state.diet,
             now: today,
           }),
         ),
-    [state.favorites, lookup, state.pantry, state.staples, today],
+    [state.favorites, lookup, state.pantry, state.staples, state.diet, today],
   );
 
   const invented = useMemo(
     () =>
       state.invented.map((recipe) =>
-        scoreRecipe(recipe, state.pantry, {
+        scoreOne(recipe, state.pantry, {
           staples: state.staples,
+          diet: state.diet,
           now: today,
         }),
       ),
-    [state.invented, state.pantry, state.staples, today],
+    [state.invented, state.pantry, state.staples, state.diet, today],
   );
 
   const history = useMemo(
